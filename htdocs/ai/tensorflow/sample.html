@@ -1,0 +1,23 @@
+<html>
+  <head>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"> </script>
+    <script>
+      const model = tf.sequential();
+      model.add(tf.layers.dense({units: 1, inputShape: [1]}));
+      model.compile({loss: 'logLoss', optimizer: 'sgd'}); // produces error: Unknown loss logLoss
+//       model.compile({loss: tf.losses.logLoss, optimizer: 'sgd'}); // works fine
+      const xs = tf.tensor2d([1, 2, 3, 4], [4, 1]);
+      const ys = tf.tensor2d([1, 3, 5, 7], [4, 1]);
+      const test = tf.tensor2d([5], [1, 1]);
+      model.fit(xs, ys, {epochs: 10,
+                         validationSplit: .2
+                         }).then(() => {
+          model.predict(test).print();
+      });
+    </script>
+  </head>
+
+  <body>
+  Results in the browser's console.
+  </body>
+</html>

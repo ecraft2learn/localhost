@@ -1,0 +1,552 @@
+<html><head><meta http-equiv="Content-Type" content="text/html; charset=windows-1252">
+<title>Making deep machine learning neural nets</title>
+<link href="../css/ai-teacher-guide.css" rel="stylesheet">
+<link rel="icon" type="image/png" href="../images/eCraft2Learn-Favicon.png" />
+<script src="../js/ai-guide.js"></script>
+</head>
+<body>
+<script src="../js/translate.js"></script>
+<h2>A guide to building AI apps and artefacts</h2>
+<h3>Chapter 6 - Making deep machine learning neural nets</h3>
+<h4>Ken Kahn, University of Oxford</h4>
+<h3 class="guide-to-guide-white" id="browser-compatibility">Browser compatibility</h3>
+<p class="guide-to-guide">
+This chapter of the guide relies upon a library for machine learning that currently runs best in the Chrome browser.
+See the <a href="troubleshooting.html#tensorflow" target="_blank">troubleshooting guide</a>
+for how to deal with problems encountered.
+</p>
+<h3 class="background-information-white">Introduction</h3>
+<p class="background-information">
+In previous chapters you used blocks that relied upon pre-trained machine learning models.
+In some cases, using transfer learning you were able to extend the models a little.
+In this chapter we introduce blocks that enable you to create deep machine learning models from scratch,
+train them, and use their predictions in your projects.
+We have yet to include support for models that use images or sounds but there is a good deal one can do with numbers.
+</p>
+<p class="background-information">
+One can build models that learn about real-world data such as weather, traffic, astronomy, economics, politics, 
+and any of the many other
+<a href="https://www.forbes.com/sites/bernardmarr/2018/02/26/big-data-and-ai-30-amazing-and-free-public-data-sources-for-2018/" target="_blank">
+open data sources</a>.
+You can build models that will try to guess the next number in a sequence.
+</p>
+<p class="background-information">
+As we explore later in this chapter one can <a href="#tic-tac-toe">create intelligent game playing programs</a>
+using these machine learning blocks.
+The trick is to turn game boards/positions into a list of numbers and the game outcome into a number
+so the model can be trained on records of previous games.
+</p>
+<h3 class="instructions-white">How to Use Machine Learning Blocks</h3>
+<p class="instructions">
+To create and use a machine learning model you need these components:
+</p>
+<ol class="instructions">
+<li>
+Create a model with the desired number and size of layers.
+The model will connect the input to the first layer, the first layer to the second layer,
+and so on until the last layer which is the output of the model.
+More layers and wider layers typically makes the model more accurate but also slower to train and use.
+</li>
+<li>
+Provide the data as two lists.
+The elements of the first list are the input and the second list contains the corresponding outputs.
+Note that the elements of the lists can be numbers or lists of numbers.
+</li>
+<li>
+Train the model.
+You can control how much learning it does on each step and how many steps it should run.
+Very many small steps usually works but can take a very long time.
+You can use advanced optimization methods to adjust the steps and improve the training.
+</li>
+<li>
+Use the model to make predictions.
+A good way to evaluate the model is to use test data that wasn't used in training. 
+If it makes good predictions on the test data you can use it to predict things about the world,
+solve mathematics puzzles, or play games.
+</li>
+</ol>
+<h3 class="instructions-white">A small example: Training a model to estimate square roots</h3>
+<p class="instructions">
+In the following you can use the <span class="block-name">Create a neural net model ...</span>
+block to create a model with four "hidden" layers.
+(Hidden in that they are in-between the input and the output.)
+You then use the <span class="block-name">Send training data ...</span>
+block to set the training data to ten numbers and their square roots.
+Next you can use the <span class="block-name">Train model named ...</span> block to train the model. 
+This can take several seconds and you should finally see the remaining "error"
+(often called the "loss"), the accuracy, and how long it took.
+Smaller errors are better.
+Finally you can use the <span class="block-name">Get predictions from model ...</span> block
+(the version that gets only one prediction at a time)
+to test how well the model has learned.
+</p>
+<figure class = "snap-iframe"
+        id = "machine learning exercise"
+        full_screen = "true"
+        edit_mode = "true"
+        stage_ratio = ".6"
+        container_style = "width: 1000px; height: 910px" 
+        caption = "Create, train, and test a simple model. TRY IT!">
+</figure>
+<p class="instructions">
+You will notice that it is hard to train the model to compute square root estimates very well.
+There are full-featured versions of blocks for creating and training models that enable you to alter more parameters.
+We suggest you first experiment with what are called the <i>hyperparameters</i> such as
+the number and size of the layers, the optimizer, the learning rate, the loss function,
+the validation split, and the number of learning steps.
+With the right settings the following can create a good square root estimator.
+</p>
+<figure class = "snap-iframe"
+        id = "better machine learning exercise"
+        full_screen = "true"
+        edit_mode = "true"
+        stage_ratio = ".6"
+        container_style = "width: 1000px; height: 930px" 
+        caption = "Create, train, and test a simple model using full-featured blocks. TRY IT!">
+</figure>
+<p class="instructions">
+By changing the input and output lists you can make a model that computes different functions.
+For example, you could train a model to convert from Centigrade to Fahrenheit.
+Try a few functions and see if some are easier to train than others.
+</p>
+<p class="instructions">
+The machine learning blocks are not restricted to learning how to map one input number to an output number.
+A simple example is
+<a href="../snap/snap.html?project=predict distance&editMode" target="_blank">
+a model that estimates the distance a point is from the origin</a>.
+Given values for <i>x</i> and <i>y</i> it estimates the square root of the sum of the squares of each.
+</p>
+<h3 class="instructions-white">Training a model to label data</h3>
+<p class="instructions">
+You can train a model to put a label on data.
+For example, here is a model trained to provide a name for a color.
+It was trained to output a label for a vector of three numbers:
+<a href="https://en.wikipedia.org/wiki/HSL_and_HSV" target="_blank">hue, saturation, and brightness</a>.
+50 different random colors were given one of nine color names.
+Instead of responding with a number or a color name the model lists a "score"
+for each of the possible color names. The scores add up to 1.
+The percentage of confidences of each label is obtained by multiplying each score by 100.
+The following model does well with only a few colors,
+perhaps you can improve by training it with more colors and by training it better.
+</p>
+<figure class = "snap-iframe"
+        id = "naming colors"
+        full_screen = "true"
+        edit_mode = "true"
+        stage_ratio = "1"
+        container_style = "width: 900px; height: 700px" 
+        caption = "Test a simple model that names colors. IMPROVE IT!">
+</figure>
+<p class="advanced-topic">
+Neural nets only work with numbers so how do outputs such "red" and "green" work?
+Click to learn how.
+</p>
+<span class="advanced-topic-body">
+<p class="how-it-works">
+The Snap! blocks for machine learning check if the output values are numbers.
+When they aren't it collects together all the unique values (e.g., all the color names in the data).
+It then uses a technique called <a href="https://en.wikipedia.org/wiki/One-hot" target="_blank">one hot</a>.
+If the colors were "red", "green", and "blue" they could be converted to 0, 1, and 2.
+But it wouldn't work well since the numbers imply that "red" is closer to "green" than "blue".
+Even if you think that is OK what about when one adds "white" or "black" to the list?
+With one hot red can be <1, 0, 0>, green <0, 1, 0> and blue <0, 0, 1>.
+Each color is equally distant to any other this way.
+</p>
+<p class="how-it-works">
+The model responds with predictions with a vector of numbers between 0 and 1 that add up to 1.
+Each number is what the model estimates is the probability
+that the correct color name is the corresponding one in the list of color names.
+E.g. For if the prediction is <.5, .2, .3> for "red", "green", and "blue" then
+the model is estimating that the odds of red being correct is 50%, green 20%, and blue 30%.
+The Snap! model prediction blocks return a list where each element is a list of a color name and number.
+The <span class="block-name">Name this color ...</span> in the above sample project
+sorts the list by the probability scores and multiplies by 100 to convert to percentages.
+</p>
+</span>
+<h3 class="how-it-works-white">A brief introduction to deep neural nets</h3>
+<p class="how-it-works">
+A deep neural net consists of an input layer, some number of hidden layers, and an output layer.
+The nets that the <span class="block-name">Create a neural net model ...</span> block creates
+are always in a sequence and each neuron is connected to every neuron in the neighbouring layers.
+While this is a common architecture there are many models that branch and are connected more sparsely.
+</p>
+<figure class="how-it-works-white">
+<img src="images/TB010-Deep-Neural-Network.jpg" class="center">
+<figcaption>A neural net with dense layers 8 (input), 9, 9, 9, and 4 (output) neurons wide</figcaption>
+</figure>
+<figure class="how-it-works-white">
+<img src="images/model-8-9-9-9-4.png" class="center">
+<figcaption>A block to create the neural net in the previous figure</figcaption>
+</figure>
+<p class="how-it-works">
+When predicting each neuron adds up all of its inputs from the previous layer after multiplying each input by a weight.
+Instead of sending the sum out to the neurons of the next layer it first checks if the value is negative and then
+sends zero instead.
+(This is a popular operation on the sum but some neural net models do other mathematical operations instead.)
+It is the weights (sometimes called "parameters") that are "learned" during training.
+They do this using a mathematical technique called
+<a href="https://en.wikipedia.org/wiki/Gradient_descent" target="_blank">gradient descent</a>.
+It repeatedly takes small steps to reduce the "loss" or "error".
+There are different strategies for doing this efficiently that are called
+<a href="http://ruder.io/optimizing-gradient-descent/" target="_blank">optimizers</a>.
+The size of the step taken each time is called the "learning rate".
+If the learning rate is too small progress is very slow.
+If it is too large then the error may bounce up and down rather than making progress towards a lower value.
+</p>
+<figure class="how-it-works-white non-essential">
+<img src="images/xkcd-machine-learning.png" class="center">
+<figcaption>Models make predictions by using linear algebra to compute weighted sums</figcaption>
+</figure>
+<h3 class="instructions-white">Blocks for saving and loading models and data</h3>
+<p class="instructions">
+Models and data can be saved and loaded using the
+<span class="block-name">open support panel tensorflow.js</span> block
+to open an interface page with a Save/Load section.'Saving and loading' button.
+Your projects can load models using the <span class="block-name">Load neural net from URL ...</span> block
+if you have copied your saved model files (both the JSON that defines the model and the learned weights file)
+to a web server.
+They can load data using the <span class="block-name">Load X data from URL</span> block where <i>X</i> can
+be either "training" or "validation".
+Training data is used in training both as data to process
+and a random sample is used to calculate how well the model is doing.
+validation data is only used to calculate the error or loss during training.
+Note that one can save training data as validation data.
+</p>
+<figure class = "snap-iframe"
+        id = "load neural net"
+        full_screen = "true"
+        edit_mode = "true"
+        stage_ratio = ".75"
+        container_style = "width: 1000px; height: 460px" 
+        caption = "Loading a neural net from the web">
+</figure>
+<figure class = "snap-iframe"
+        id = "load training data"
+        full_screen = "true"
+        edit_mode = "true"
+        stage_ratio = ".6"
+        container_style = "width: 1000px; height: 1000px" 
+        caption = "Loading training or validation data from the web">
+</figure>
+<h3 id="real-world-applications" class="instructions-white">Applying machine learning to real-world data</h3>
+<p class="background-information">
+Every day there is news of new applications of machine learning to problems.
+Sometimes it is for entertainment as when <a href="https://www.youtube.com/watch?v=Pc2aJxnmzh0" target="_blank">
+SnapChat filters add animations or distort people's faces></a>.
+Sometimes it saves lives as when
+<a href="https://www.blog.google/technology/ai/fighting-fire-machine-learning-two-students-use-tensorflow-predict-wildfires/" target="_blank">
+students used machine learning to predict wildfires</a>.
+Or to <a href="https://medium.com/datadriveninvestor/machine-learning-generated-artwork-auctions-off-for-432-500-c377be74146f" target="_blank">
+generate art that sells for a high price</a> or to
+<a href="https://cloud.google.com/blog/products/gcp/how-a-japanese-cucumber-farmer-is-using-deep-learning-and-tensorflow" target="_blank">
+help Japanese cucumber farmers sort their cucumbers</a>.
+Machine learning is increasingly used to help scientists, for example, to
+<a href="https://www.blog.google/technology/ai/hunting-planets-machine-learning/" target="_blank">find exoplanets</a>.
+</p>
+<p class="instructions">
+You can bring data into Snap! and use it to train your models.
+You can find available data by doing a web search but often even better is to use
+<a href="https://toolbox.google.com/datasetsearch" target="_blank">Google dataset search</a>.
+In the following we found two datasets to explore whether weather data can help predict incidence of influenza.
+For a collection of daily weather records for hundreds of places worldwide, some going back more than one hundred years,
+we used this <a href="https://www1.ncdc.noaa.gov/pub/data/ghcn/daily/" target="_blank">weather data</a>
+(documented in the readme.txt file).
+And for the number of cases of flu each week across many countries we used
+<a href="http://apps.who.int/flumart/Default?ReportNo=16" target="_blank">Epi Data Surveillance Information</a>
+from the World Health Organisation.
+</p>
+<p class="instructions">
+An easy way to bring data into Snap! is by importing the contents of a TXT file into a variable.
+Create a variable and then right click on the variable's "watcher" and select <i>import</i>.
+</p>
+<figure class="instructions-white">
+<img src="images/importing-data.png" class="center">
+<figcaption>A convenient way to bring data into Snap!</figcaption>
+</figure>
+<p class="instructions">
+Bringing data into Snap! as text is only the first step.
+The Snap! <span class="block-name">split ... by</span> block can turn text into lists.
+The lists often need to be cleaned up and restructured.
+This is often called <a href="https://en.wikipedia.org/wiki/Data_wrangling" target="_blank">data wrangling</a>.
+</p>
+<p class="instructions">
+In this <a href="../snap/snap.html?project=weather data&editMode" target="_blank">Snap! project</a>
+data wrangling is performed on both the weather and flu data.
+The idea is to have each element of the weather dataset to contain the weather for a week matched up with the flu data for the following week.
+One problem is that the flu data from the World Health Organisation is weekly for entire countries
+while the weather data is daily for weather stations (often in cities).
+In the sample project data for Ireland and Switzerland were used because a big country could have very different weather in different parts.
+Also one needs to avoid datasets that are incomplete which occurs often.
+</p>
+<p class="instructions">
+Weather and flu are seasonal so to make interesting predictions we need to say if the weather data was higher or lower than typical for that time of year
+how does it predict how the flu cases will vary from what is typical for that time of year. 
+To address this, the data has been regularised which in this case means that all measurements have been divided by the average value for that measurement.
+So a value such as 0.75 means that reading was 75% of the average value for that measurement that week of the year.
+</p>
+<p class="instructions">
+Another challenge is to work out how to evaluate how well a model does.
+Is it good enough if the model predicts better than chance given a week's weather data whether the next week's flu reports will be above or below average?
+Or should we measure how far off the predictions are on test data from what the following week's flu occurrences really were?
+</p>
+<p id="real-world-data-projects" class="instructions">
+If you want to work on the question of whether the weather partially helps predict flu cases in the following week
+then there are many things to try to enhance 
+this <a href="../snap/snap.html?project=weather data&editMode" target="_blank">first draft of such a project</a>.
+Perhaps you can improve it with more or different data.
+Or designing a different machine learning model and training scheme.
+Or if start to get good predictions then see if a simpler model works almost as well.
+Maybe the precipitation measurements don't matter.
+Or maybe it doesn't need the full daily measurements of the previous week.
+Alternatively, try doing something similar with other available datasets.
+</p>
+<h3 id="tic-tac-toe" class="instructions-white">Learning to win at Tic Tac Toe</h3>
+<p class="background-information">
+<a href="https://en.wikipedia.org/wiki/Tic-tac-toe" target="_blank">Tic Tac Toe</a> (also known as Noughts and Crosses) is a simple game.
+A computer could have all <a href="https://www.jesperjuul.net/ludologist/2003/12/28/255168-ways-of-playing-tic-tac-toe/" target="_blank">
+255,168 games</a> in memory and play perfectly by searching its memory.
+A <a href="http://www.computerhistory.org/collections/catalog/X39.81" target="_blank">Tinkertoy computer made of wooden spools and sticks</a>
+plays a perfect game.
+So does a <a href="https://www.scientificamerican.com/article/dna-computer-plays-comple/" target="_blank">
+computer made of DNA</a>.
+</p>
+<figure class="background-white non-essential">
+<img src="images/tinkertoy-tic-tac-toe-X39.81.03.jpg" width="600" class="center">
+<figcaption>A wooden computer that plays a perfect game of Tic Tac Toe</figcaption>
+</figure>
+<p class="background-information non-essential">
+<a href="https://en.wikipedia.org/wiki/Donald_Knuth" target="_blank">Donald Knuth</a>,
+a world famous computer scientist, wrote a Tic Tac Toe learning program in 1958 when he was 20 years old.
+The computer had 10 kilobytes of memory (the laptop that I'm using to write this has more than one million times more memory).
+In those days computers didn't have keyboards, displays, or mice.
+</p>
+<figure class="background-white non-essential">
+<img src="images/young-donald-knuth-ibm-650-1958.jpg" width="400" class="center">
+<figcaption>Donald Knuth at the computer he programmed a Tic Tac Toe learning program</figcaption>
+</figure>
+<p class="background-information non-essential">
+Here is a five-minute video where Donald Knuth tells stories of his Tic Tac Toe program:
+</p>
+<iframe class="background-information-white center"
+        width="560"
+        height="315"
+        style="display: block; margin-left:auto; margin-right: auto;"
+        src="https://www.youtube.com/embed/_c3dKYrjj2Q?start=33"
+        frameborder="0"
+        allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture"
+        allowfullscreen>
+</iframe>
+<h3 class="instructions-white">Training a neural net to play Tic Tac Toe</h3>
+<p class="instructions">
+Your challenge is to train a deep neural net to play well.
+You can start with this <a href="../snap/snap.html?project=tic tac toe&editMode" target="_blank">Snap! program for playing Tic Tac Toe</a> and add scripts
+for recording games, creating neural nets, using those games for training your nets, and finally using the 
+trained neural net models to play the game.
+This is quite challenging and only appropriate for those with a good deal of experience with Snap! and machine learning. 
+</p>
+<p class="instructions">
+An alternative is to instead focus on learning how to design good neural nets and how to train them effectively.
+Click on the following to skip the Snap! programming challenge and start training models right away.
+Once you have a model trained to win (most of the time) you can set up tournaments with the trained models of classmates or friends!
+</p>
+<p class="advanced-topic">
+Click to see how you can train a neural net to play Tic Tac Toe in Snap!.
+You might want to try this on your own before reading this.
+</p>
+<span class="advanced-topic-body">
+<p class="instructions">
+This <a href="../snap/snap.html?project=tic tac toe machine learning&editMode" target="_blank">Snap! program</a>
+has a variable called <i>Players</i> whose value is a list of two player types.
+A player type can be 'human', 'random', or the name of a model you created.
+Games are recorded and are the basis for training. 
+The space bar will start a new game and if humans aren't playing a new game will start as soon as a game is over.
+</p>
+<p class="instructions">
+There is a supporting web page that allows you to experiment with training and provides a way to save and load models and game data.
+Use the <span class="block-name">open support panel tensorflow.js</span> block to open up this page.
+It will have a 'return to Snap!' button.
+</p>
+<p class="how-it-works">
+The core idea is that the board positions are recorded after each move.
+When a game ends then outcomes are associated with each move.
+If the game ended in a tied the outcome is 0.
+If the move led to a win then 1, otherwise -1.
+The model is trained to predict a value between -1 and 1 for moves that may or may not be games it has been trained on.
+</p>
+<p class="how-it-works">
+Neural nets work only with numbers so we need to decide how a board position will be represented with numbers.
+A straight forward way would be to use a vector of nine numbers for each board position.
+0 could mean empty, 1 X has moved there, and 2 O has.
+This works but not as well as the following scheme.
+The problem is that by mixing things of different kinds (moves and non-moves) the relationships between boards is hard to discern.
+For example, the difference between the upper left corner having O instead of X is 1 but so is
+the difference between that position being empty and having an X.
+And why should the difference between an empty square and an O be twice the difference between an empty square and an X?
+So to avoid this problem machine learning programs typically use
+<a href="https://en.wikipedia.org/wiki/One-hot" target="_blank">one hot</a>
+vectors that are all zeros except for a single one.
+So X can be &lt;1,0,0&gt;, O can be &lt;0,1,0&gt;, and empty can be &lt;0,0,1&gt;.
+While a board could then be 9x3 (or 3x9) matrix it is easier to flatten the structure so that every board 
+is a vector of 27 zeros and ones.
+</p>
+<figure class="how-it-works">
+<img src="images/tic-tac-toe-board.png" width="300" class="center">
+<figcaption>This board is encoded as &lt;1,0,0,0,1,0,0,0,1,1,0,0,1,0,0,0,0,1,0,0,1,0,0,1,0,1,0&gt;</figcaption>
+</figure>
+<p class="how-it-works">
+Once a model has been trained the predictions for each possible move can be computed.
+There are at least two ways use these predictions to make moves:
+</p>
+<ol class="how-it-works">
+<li>
+<b>Pick the largest one.</b>
+The idea is that if the model is correct this move has the highest chance of leading to a win.
+Note this isn't so good when the model is playing itself or another model that is also using the top predictions
+since the same moves will be made over and over again and not much can be learned.
+</li>
+<li>
+<b>Convert the predictions into probabilities.</b>
+This can be done by dividing each positive prediction by the sum of all the positive predictions.
+(Recall that negative predictions are predictions of moves leading to a loss.)
+Then we use Snap!'s <span class="block-name">pick random ...</span> block to pick a random number.
+And then we use that number to ensure that the odds of any move being chosen is determined by its probability.
+</li>
+</ol>
+</span>
+
+<h3 class="background-information-white">Strategies for training a good Tic Tac Toe player</h3>
+<p class="background-information">
+The best advice is to experiment!
+No one knows what is the best model architecture, the best way to generate good training data, how much training is required, etc..
+One way to search for a good architecture is to create two models with a different number of layers or differences in the sizes of their layers.
+After training them both with the same data have them play a large number of games and see if one wins more than another.
+Keep the good one.
+(You can save models after running the <span class="block-name">open support panel tensorflow.js</span> block.)
+Repeat with a different model architecture for the weaker player.
+Similarly you can explore different training parameters to see which optimizer or learning rate works best.
+Try to discover the number of learning steps after which very little progress is made in reducing the loss so you don't waste time.
+One way to detect if a model benefits from additional training is to have an older version play against a newer version of the same model.
+</p>
+<p class="background-information">
+You can do all these experiments using the Snap! program but it takes several seconds to run a game.
+For running many large-scale experiments we provide this <a href="../tic-tac-toe/" target="_blank">
+web page for Tic Tac Toe machine learning</a>.
+It can run thousands of games in a few seconds for evaluating models or generating lots of training data.
+Note that you can save a model created in Snap! and then load it into the Tic Tac Toe page and vice versa.
+</p>
+<p class="background-information">
+Not all training data is equally useful.
+Probably the least useful is random move player against random move player.
+But it is easiest to generate.
+A human playing another human is likely to produce very good data.
+One way to generate lots of good data is to create a Snap! script for an expert player and use records of its games for training.
+</p>
+<h3 class="instructions-white" id="hyperparameters">Automating the search for good "hyperparameters"</h3>
+<p class="background-information">
+It is hard to know what parameters to use to define a neural net model and its training.
+How many layers?
+How many neurons per layer?
+How many training steps?
+How large should each training step be?
+Which activation and loss functions to use?
+What is the best optimization method?
+</p>
+<p class="background-information">
+One can run lots of experiments to find better and better answers to these questions.
+The answers are called "hyperparameters" because they are not the weights/parameters of the neural net
+but instead control how those weights are determined.
+Recently researchers have begun to write programs that automate this search for good hyperparameters.
+This is often called AutoML, short for
+<a href="https://en.wikipedia.org/wiki/Automated_machine_learning" target="_blank">automated machine learning</a>.
+These programs can search for hyperparameters that make the best quality predictions or classifications
+or hyperparameters that are small and fast but still pretty accurate.
+</p>
+<p class="instructions">
+The <span class="block-name">Search for good neural net model parameters</span> block can be used to search
+for hyperparameters that minimize the "loss" (make better predictions).
+You can control how many experiments it should run.
+Explore the following to see how well a model can be trained to estimate the length of the hypotenuse of a triangle. 
+</p>
+<figure class = "snap-iframe"
+        id = "hyperparameters exercise"
+        full_screen = "true"
+        edit_mode = "true"
+        stage_ratio = ".2"
+        container_style = "width: 1000px; height: 900px" 
+        caption = "Search for good hyperparameters. TRY IT!">
+</figure>
+<h3 class="project-ideas-white" id="project-ideas">Possible project ideas using machine learning</h3>
+<p class="project-ideas">
+Here are some project ideas:
+</p>
+<ol class="project-ideas">
+<li>
+Apply machine learning to games other than Tic Tac Toe.
+Simple games such as <a href="https://en.wikipedia.org/wiki/Dots_and_Boxes" target="_blank">dots and boxes</a> or
+<a href="https://en.wikipedia.org/wiki/Nim" target="_blank">Nim</a>
+could be approached in a manner similar to the Tic Tac Toe machine learning program.
+</li>
+<li>
+Enhance the Tic Tac Toe program include a perfect computer player that can generate good training data.
+</li>
+<li>
+Explore how simple models can solve simple mathematical challenges (e.g. doubling a number)
+and how complex models need to be to handle more complex problems like square root.
+</li>
+<li>
+Find one or two data sources
+(perhaps among these
+<a href="https://www.forbes.com/sites/bernardmarr/2018/02/26/big-data-and-ai-30-amazing-and-free-public-data-sources-for-2018/" target="_blank">
+30 data sources</a> or using the <a href="https://toolbox.google.com/datasetsearch" target="_blank">Google dataset search</a> tool) 
+and solve a real-world problem.
+For example, maybe a machine learning program can predict how a rainy day will affect automobile traffic,
+the number of people who get the flu a few days later, or the number of bicycle accidents.
+Or try enhancing <a href="#real-world-data-projects">the sample flu prediction project</a>.
+</li>
+<li>
+Use <a href="chapter-5.html">word embeddings</a> to do machine learning on texts.
+For example, one can do
+<a href="https://en.wikipedia.org/wiki/Sentiment_analysis" target="_blank">sentiment analysis</a> of sentences by
+converting input sentences to the average of the embeddings of its words.
+The output could be a few numbers capturing the emotional content of the input sentences (e.g. angry, happy, excited).
+</li>
+</ol>
+<h3 class="guide-to-guide-white">Future directions for this chapter</h3>
+<p class="guide-to-guide">
+Several enhancements to this chapter are being considered.
+There are many model architectures that cannot be expressed.
+Convolutional networks are very successful at handling image and sound input.
+Recursive neural nets handle well time-based data.
+Reinforcement learning enables unsupervised learning (using only input datasets and in-world or in-simulation rewards).
+</p>
+
+<h3 class="resources-white" id="additional-resources">Additional resources</h3>
+<p class="resources">
+This chapter provides a simplified interface to
+<a href="https://js.tensorflow.org/api/latest/" target="_blank">TensorFlow.js</a>
+a JavaScript implementation of Google's TensorFlow machine learning library.
+There is a <a href="https://js.tensorflow.org/tutorials/" target="_blank">set of tutorials</a> for
+learning how to use TensorFlow.js (some familiarity with JavaScript required).
+Stephen Wolfram wrote a
+<a href="https://www.wolfram.com/language/elementary-introduction/2nd-ed/22-machine-learning.html" target="_blank">Wolfram Language textbook chapter</a>
+and a
+<a href="https://blog.stephenwolfram.com/2017/05/machine-learning-for-middle-schoolers/" target="_blank">blog post</a>
+about machine learning for middle and high school students (some familiarity with Wolfram Language/Mathematica required).
+A high school student wrote this
+<a href="https://github.com/kjaisingh/high-school-guide-to-machine-learning" target="_blank">guide to learning machine learning</a>.
+In this chapter we have focused on the high level "layers" part of TensorFlow.js that is closely based upon
+<a href="https://keras.io/" target="_blank">Keras</a> (some familiarity with Python required).
+There are good articles about
+<a href="http://ruder.io/optimizing-gradient-descent/" target="_blank">training optimizers</a>,
+<a href="https://medium.com/@risingdeveloper/visualization-of-some-loss-functions-for-deep-learning-with-tensorflow-9f60be9d09f9" target="_blank">
+loss functions</a>, and
+<a href="https://towardsdatascience.com/train-validation-and-test-sets-72cb40cba9e7" target="_blank">
+different uses of training, validation, and test data</a>.
+</p>
+<p class="guide-to-guide">
+Return to 
+<a class="guide-link" href="chapter-5.html">the previous chapter on word embeddings</a>.
+</p>
+<script src="../js/bottom-of-page.js"></script>
+</body>
+</html>

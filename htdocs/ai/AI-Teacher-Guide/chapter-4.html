@@ -1,0 +1,691 @@
+<html><head><meta http-equiv="Content-Type" content="text/html; charset=windows-1252">
+<title>Adding machine learning models to programs</title>
+<link href="../css/ai-teacher-guide.css" rel="stylesheet">
+<link rel="icon" type="image/png" href="../images/eCraft2Learn-Favicon.png" />
+<script src="../js/ai-guide.js"></script>
+</head>
+<body>
+<script src="../js/translate.js"></script>
+<h2>A guide to building AI apps and artefacts</h2>
+<h3>Chapter 4 - Adding machine learning models to programs</h3>
+<h4>Ken Kahn, University of Oxford</h4>
+<h4 class="guide-to-guide-white" id="browser-compatibility">Browser compatibility</h4>
+<p class="guide-to-guide">
+This chapter of the guide includes many interactive elements that currently only run well in the Chrome browser.
+This chapter relies upon there being a camera that the browser can access.
+Note that the blocks described here create a second browser window for "training" the system.
+Snap! and training window are both in the same browser tab but only one is visible at any time.
+</p>
+<h4 class="background-information-white">Introduction</h4>
+<p class="background-information">
+In the previous chapters the new Snap! blocks used services that had been trained to
+recognise speech and images.
+In this chapter you do the training.
+This training is done by a <a href="https://en.wikipedia.org/wiki/Deep_learning">deep learning</a> system.
+Deep learning is a very successful set of machine learning techniques.
+It is called "deep" because there are many layers of simulated neurons that do the processing.
+Typically the lowest layers pay attention to tiny details
+but higher layers can use the output of lower layers that capture some aspect of the image such as texture or edges.
+Here is a very nice 5 minute video that introduces the big ideas behind machine learning:
+</p>
+
+<iframe class="background-information-white"
+        width="560" height="315"
+        style="display: block; margin-left:auto; margin-right: auto;" 
+        src="https://www.youtube.com/embed/_rdINNHLYaQ"
+        frameborder="0" allow="autoplay; encrypted-media" allowfullscreen>
+</iframe>
+
+<p class="background-information">
+In this chapter we focus upon "supervised learning" which means that during training labels
+for the input are provided.
+The machine learns to then choose among training labels when presented with a new image (or other kinds of input).
+Rarely is the system completely confident that its choice of label is correct so instead it computes
+"confidence scores".
+The scores are between 0 (certain it is not this label) to 1 (certain it is).
+The sum of the scores of all the labels always adds up to 1.
+You may prefer to display confidence scores as percentages by multiplying the scores by 100.
+For example, a .8 score for label X can be thought of as saying the system is
+"80% sure the new input should have label X".
+</p>
+<p class="background-information">
+Unlike the previous chapters that rely upon pre-trained models here you can experiment with machine learning.
+You can learn what kinds of inputs the system can easily tell apart and which ones confuse it.
+You can experiment to answer questions such as
+how many examples of each label are needed to recognise them reliably and
+how does recognition degrade as more labels are introduced.
+</p>
+<h4 class="instructions-white">A block to start training to recognise images from a camera</h4>
+<p class="instructions">
+The <span class="block-name">Train with image buckets ...</span> block
+opens a tab where you can train the system to label what is in front of the camera.
+(If the tab is blocked by your browser read
+the <a href="troubleshooting.html#train-camera" target="_blank">troubleshooting guide</a>.)
+The first argument is the list of labels.
+A <span class="notranslate" translate=no>"bucket"</span> is the collection of all the images with the same label.
+The system will attempt to determine the confidence that an image matches the images in each bucket.
+If you are training it to distinguish between two things (e.g. cats and dogs) then it is a good idea
+to add a third bucket for "everything else".
+During training then produce images of lots of different things that aren't cats or dogs while pressing the
+button to train for the "everything else" bucket.
+</p>
+<p class="instructions">
+Here there are only two labels: "leaning to the left" and "leaning to the right".
+You can edit the list to instead recognise different facial expressions, different people's faces,
+objects held in front of the camera, and much more.
+When the training tab launches you'll see two buttons:
+</p>
+<figure>
+<img src="images/training-buttons.png" class="center">
+<figcaption>Hold down each of these buttons as you present examples of leaning to the left or right</figcaption></figure>
+
+<figure class = "snap-iframe"
+        id = "camera train"
+        full_screen = "true"
+        edit_mode = "true"
+        stage_ratio = "1"
+        container_style = "width: 1000px; height: 550px;" 
+        caption = "A block for training the system to recognise what the camera is showing. TRY IT">
+</figure>
+
+<p class="advanced-topic">Click to read an advanced topic</p>
+<span class="advanced-topic-body">
+<p class="instructions">
+The <span class="block-name">Train with image buckets ...</span> block only needs the first argument telling it the bucket labels.
+It has three additional optional arguments:
+<ol class="instructions">
+<li>
+Whether to start fresh or continue with the current training if this block is run more than once in a session.
+</li>
+<li>
+Text that will appear on the training page. Can be in HTML format.
+</li>
+<li>
+Blocks to run after returning from the training tab.
+</li>
+</ol>
+</p>
+</span>
+
+<p class="instructions">
+When training the system try to provide a variety of images that match the label.
+If you are training "leaning left" then lean different amounts and at different distances to the camera.
+Then when training "leaning right" don't allow the system to learn some difference that shouldn't matter.
+For example, don't change the lighting or background between training different labels.
+When you aren't pressing any training buttons the training page keeps
+trying to recognise what is in front of the camera.
+You can determine if your training is good by leaning one way and then the other
+and see if the confidence scores changes as they should.
+If not try adding more images.
+</p>
+<p class="instructions">
+When you are ready to test the trained system return to the Snap! tab
+and click on the <span class="block-name">Current image label confidences</span> block.
+Then click on the <span class="block-name">confidences</span> variable to see its value.
+Change what is in front of the camera and try again.
+Note that when you return to the training tab it starts running and you can add more training samples.
+When you are finished with this close the training tab.
+</p>
+<h4 class="sample-program-white">A sample program training and using image labels</h4>
+<p class="sample-program">
+Here is a program that launches a training tab to determine
+whether your finger is pointing at the camera or to the right.
+While training move your hand around so it is trained to ignore where the hand is
+and just pay attention to which way the finger is pointing.
+When you return to Snap! the program will repeatedly check which way your finger is pointing.
+If it sees a finger pointing at the camera then the turtle goes forward.
+If not then it turns.
+It always displays the latest confidence scores.
+</p>
+<p class="exercise">
+<b>Exercise.</b>
+There are many ways of enhancing this program.
+Add a third or fourth label and use that label to control the turtle.
+For example, add the label of pointing left and change the program to turn left or right depending on which way the finger is pointing.
+Or add a gesture to stop moving.
+</p>
+<p class="sample-program">
+A full screen version of the following program can be
+<a href="../snap/snap.html?project=follow%20finger" target="_blank">found here</a>.
+Look at the script, it isn't very complicated considering what it does.
+There is a similar <a href="../snap/snap.html?project=follow%20lean" target="_blank">
+program where the sprite moves left or right depending upon which way you are leaning</a>.
+Think of modifying it in interesting ways, e.g. a face whose eyes look left and right as you lean left and right.
+A <a href="https://charliegerard.github.io/teachable-keyboard/training.html" target="_blank">
+web page where one can type by moving one's head</a> (perhaps useful to those with physical disabilities) 
+uses the same ideas as this.
+</p>
+
+<figure class = "snap-iframe"
+        id = "follow finger"
+        full_screen = "true"
+        container_style = "width: 1000px; height: 750px;"
+        caption = "Train it to learn which way your finger is pointing and watch the video follow your finger. TRY IT!">
+</figure>
+
+<p class="exercise">
+<b>Exercise.</b> Explore how to make the training more accurate.
+How does the performance change as more examples are presented?
+Does it help to simplify the images (e.g. arrange so only your pointing hand is being captured by the camera)?
+If you train with one person and then replace with another does the system get confused?
+Does it help to train with both people?
+</p>
+
+<h4 class="instructions-white">Using sprite costumes instead of the camera in training</h4>
+<p class="instructions">
+In Snap! each sprite can have any number of "costumes".
+Costumes can be drawings, photos, or imported images.
+</p>
+<figure class="instructions-white">
+<img src="images/snap-costume.png" class="center">
+<figcaption>Snap! interface for creating costumes</figcaption></figure>
+
+<p class="instructions">
+Using the <span class="block-name">Train with all my costumes</span> you can send all of a
+sprite's costumes to the training tab.
+This block is defined using the <span class="block-name">Add costume &lt;i&gt; to training ...</span> block.
+You can also ask the training tab about label confidences of a costume using 
+<span class="block-name">Label confidences of costume number ...</span>.
+You can experiment with these costume-based training blocks in the following.
+</p>
+
+<figure class = "snap-iframe"
+        id = "black and white"
+        full_screen = "true"
+        edit_mode = "true"
+        stage_ratio = "1"
+        container_style = "width: 1000px; height: 750px;"
+        caption = "Blocks for using sprite costumes for training and classification. TRY IT!">
+</figure>
+
+<h4 class="instructions-white">Saving and loading your training</h4>
+<p class="instructions">
+While in a training window you will see a button <b>Save your training</b>.
+Clicking it save a file where you want.
+</p>
+<figure class="instructions-white">
+<img src="images/save-your-training.png" class="center">
+<figcaption>A button to save all your training</figcaption></figure>
+<p class="instructions">
+To load saved training you can either load the file on the local file system or
+host the file on the web and use its URL to access it.
+</p>
+<figure class = "snap-iframe"
+        id = "load training"
+        full_screen = "true"
+        edit_mode = "true"
+        stage_ratio = ".5"
+        container_style = "width: 1000px; height: 400px;"
+        caption = "Blocks for loading saved trainings. TRY IT">
+</figure>
+
+<h4 class="instructions-white" id="image-recognition-without-cloud-services">Recognising images without cloud services</h4>
+<p class="instructions">
+In the <a href="chapter-3.html">previous chapter</a> many blocks were introduced that do image recognition.
+These rely upon AI cloud services from large companies.
+Here we instead rely upon a trained machine learning model named <a href="https://arxiv.org/abs/1704.04861" target="_blank">MobileNet</a>.
+This model runs in your browser and does not contact any cloud services.
+While it will choose from among
+<a href="https://github.com/tensorflow/tfjs-models/blob/master/mobilenet/src/imagenet_classes.ts" target="_blank">1000 labels</a>
+it rarely does as well as the cloud services.
+For contexts where registering for <a href="../AI-Teacher-Guide/chapter-3.html#api-keys">API keys</a> is a problem, or
+Internet access is limited or missing, or privacy is a concern then models like MobileNet are useful.
+It does, however, rely upon your device having a <a href="http://www.nvidia.com/object/what-is-gpu-computing.html" target="_blank">GPU</a>
+to run at reasonable speeds.
+Note this will be slow to load but should run quickly thereafter.
+</p>
+<figure class = "snap-iframe"
+        id = "mobilenet"
+        full_screen = "true"
+        edit_mode = "true"
+        stage_ratio = "1"
+        container_style = "width: 1000px; height: 525px;"
+        caption = "Blocks for image recognition on device without cloud services. TRY IT">
+</figure>
+
+<h4 class="societal-impact-white">Benefits and risks</h4>
+<p class="societal-impact">
+Most of the <a class="guide-link" href="chapter-3.html#image-recognition-good-for" target="_blank">
+things image recognition is good for</a>
+and <a class="guide-link" href="chapter-3.html#image-recognition-dangers" target="_blank">its dangers</a>
+were discussed in chapter 3.
+But maybe the situation is different
+if users do the training instead of professionals in large corporations.
+Will the biases be different?
+Does the smaller training set make the system less reliable?
+</p>
+<p class="advanced-topic">Click to read an advanced topic</p>
+<span class="advanced-topic-body">
+<h4 class="how-it-works-white">How does this work?</h4>
+<p class="how-it-works">
+We discussed <a class="guide-link" href="chapter-3.html#how-does-computer-vision-work" target="_blank">
+how image recognition works in general</a> in the previous chapter.
+The fact that training of a deep learning system is feasible inside of browser is due to the work on
+<a href="https://js.tensorflow.org/" target="_blank">tensorflow.js (formerly known as deeplearn.js)</a>.
+This JavaScript library speeds up learning and prediction by using the 
+<a href="http://www.nvidia.com/object/what-is-gpu-computing.html" target="_blank">GPU</a>
+that is part of nearly all computers.
+The GPU can be more than one hundred times faster at the computations that deep learning needs than using
+the CPU of the computer.
+The training window is based upon the <a href="https://github.com/googlecreativelab/teachable-machine-boilerplate"
+target="_blank">teachable machine boilerplate</a>.
+The deep learning model used is called <a href="https://arxiv.org/abs/1704.04861" target="_blank">MobileNet</a>
+and it is designed to be smaller and faster than more accurate architectures.
+It works by using MobileNet to compute 1000 numbers for each trained image.
+These numbers capture high-level feature of the image.
+Then when asked to classify a new image it sees which of the images used in training are the closest and
+reports a high confidence for the labels of those images.
+</p>
+</span>
+
+<h4 class="sample-program-white">A <i>Rock Paper Scissors</i> game using Machine Learning</h4>
+<p class="sample-program">
+Using machine learning one can make a <i>rock paper scissors</i> game that can be played
+by putting your hand into one of three configurations.
+If the game below doesn't work visit this <a href="#browser-compatibility">help</a>.
+</p>
+
+<figure class = "snap-iframe"
+        id = "rock paper scissors"
+        full_screen = "true"
+        container_style = "width: 800px; height: 600px" 
+        caption = "Click the green flag to play Rock Paper Scissors using just your hand. TRY IT!">
+</figure>
+
+<p class="how-it-works">
+This game uses the <span class="block-name">train with all my costumes ...</span> block four times.
+Once for rocks, paper, and scissors and a fourth time for "other".
+Once the training is completed the game starts and the program picks a random move
+and compares it to what it thinks your move was based upon the analysis by the training tab
+of what is in front of the camera.
+You can start exploring and enhancing the game most easily by clicking on the "Open this in a new tab" block in the scripting area.
+This example was inspired by the great set of machine learning project examples at
+<a href="https://machinelearningforkids.co.uk/#!/worksheets" target="_blank">machine learning for kids</a>
+</p>
+
+<h4 class="background-information-white">Doesn't machine learning require huge amounts of data?</h4>
+<p class="background-information">
+Much of the current success of machine learning system is a result of having trained them on <i>huge</i> data sets.
+Deep learning for machine translation, for example, didn't work well until they were trained with billions of sentences.
+So how could the examples in this chapter work with just dozens of examples for each label?
+Part of the answer is that big data is necessary for high accuracy.
+If you try the rock paper scissors game you'll see it sometimes makes mistakes.
+See if you can improve its accuracy by adding more training images.
+</p>
+<p class="background-information non-essential">
+The image training command relies upon a deep learning model called
+<a href="https://arxiv.org/abs/1704.04861" target="_blank">MobileNet</a>
+that was trained on 1000 categories in 1.2 million images.
+The Snap! command uses what is called
+<a href="https://machinelearningmastery.com/transfer-learning-for-deep-learning/" target="_blank">transfer learning</a>
+to start the training using the features that a well-trained system has already learned.
+The system does not know anything about, for example, hands shaped as paper, rock, or scissors
+but it has already learned about textures, edges, colours, and more.
+Each training image used in transfer learning is
+<a href="chapter-5.html#image_embeddings">converted by MobileNet into a list of one thousand numbers</a>.
+The confidence scores for the labels is then computed using an algorithm called
+<a href="https://en.wikipedia.org/wiki/K-nearest_neighbors_algorithm" target="_blank">k-nearest neighbors</a>.
+To classify an image, its distance to each of the training images is computed and the "k" closest is found.
+Those closest images "vote" for their label as the classification and the sums are used to compute the confidences. 
+</p>
+<p class="background-information">
+Another difference is that the image recognition services in the 
+<a href="chapter-3.html" target="_blank">previous chapter</a> can distinguish between many thousands of different kinds of images
+and has been trained for a long time on many millions of images.
+The <i>Rock paper scissors</i> game requires only four categories - an easier task.
+And AI vision services can do more than just
+<a href="chapter-3.html#advanced-image-recognition" target="_blank">choose a label</a> for an image.
+</p>
+
+<h4 class="background-information-white">Recognising sounds</h4>
+<p class="background-information">
+Computers can be trained to distinguish different sounds including spoken speech.
+<a href="chapter-2.html">Chapter 3</a> describes how to use cloud services that do speech recognition.
+Here you can create programs that respond to any sound.
+Also you can train it to recognise a few different words or phrases that works locally on your computer without sending
+any audio to a cloud server.
+This is useful in contexts without a reliable network connection or for increased privacy.
+Furthermore, the <span class="block-name">Audio label confidences</span> block has an option to use a 
+"Pre-trained model of 20 words" on your device.
+It is capable of recognising 'zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine',
+'up', 'down', 'left', 'right', 'go', 'stop', 'yes', and 'no'.
+This relies upon the <a href="https://github.com/tensorflow/tfjs-models/tree/master/speech-commands" target="_blank">
+speech command recognizer</a> created by Google.
+</p>
+<figure class = "snap-iframe"
+        id = "train audio"
+        full_screen = "true"
+        edit_mode = "true"
+        stage_ratio = "1"
+        container_style = "width: 1000px; height: 450px;" 
+        caption = "A block for training the system to recognise what the microphone is hearing. TRY IT">
+</figure>
+
+<p class="instructions">
+The <span class="block-name">Train with audio buckets...</span> block uses a Tensorflow.js deep learning model
+which without a GPU runs too slow to be useful.
+For running on small computers such as a Raspberry Pi there is also the similar
+<span class="block-name">Train (without Tensorflow) with audio buckets...</span> block and its accompanying
+<span class="block-name">Audio label confidences (without Tensorflow)</span> block.
+</p>
+<h4 class="sample-program-white">An Example Program using the Microphone and Machine Learning</h4>
+<p class="sample-program">
+An example using audio training is to tell a sprite to go "forward", turn "right", or "stop".
+Note that these labels are for us humans, you can for example make any sound or speak in another language
+and the program should work just fine.
+</p>
+<figure class = "snap-iframe"
+        id = "train and speak commands"
+        full_screen = "true"
+        container_style = "width: 800px; height: 600px" 
+        caption = "Click the green flag to train it to recognise a few voice commands. TRY IT">
+</figure>
+
+<h4 class="background-information-white" id="pose-detection">Detecting poses of people</h4>
+<figure class="background-information-white">
+<img src="../images/pose-detection.gif" width=300 height=300 class="center">
+<figcaption>A demonstration of pose detection</figcaption>
+</figure>
+<p class="background-information">
+Google Creative Lab recently released browser-based software called <i>Posenet</i> for
+<a href="https://medium.com/tensorflow/real-time-human-pose-estimation-in-the-browser-with-tensorflow-js-7dd0bc881cd5" target="_blank">
+real-time human pose estimation</a>.
+This software can determine the locations of 17 different body parts:
+noses, eyes, ears, shoulders, elbows, wrists, hips, knees, and ankles.
+Posenet was created using deep machine learning and makes use of<a href="https://js.tensorflow.org/" target="_blank">Tensorflow.js</a>.
+Many are familiar with how pose detection can be embedded in video games via
+<a href="https://en.wikipedia.org/wiki/Kinect">Microsoft's Xbox Kinect</a>.
+What is so impressive about Posenet is that it works in the browser without any special software or hardware (other than a webcam).
+</p>
+<p class="instructions">
+The <span class="block-name">poses</span> block reports a list of poses.
+One pose for each person in front of the camera.
+The system can be configured on the "poses" tab to be optimised for scenes with more than one person.
+Tradeoffs between speed and accuracy can also be made.
+The "poses" tab is also a good place to explore pose detection.
+There are two kinds of <span class="block-name">pose property</span> blocks that can fetch information for a <i>pose</i>.
+They both can specify that one wants the confidence the system has that it has correctly identified a particular body part
+(values between 0 and 100).
+Or that the location of the body part is desired which is reported as a list of the x and y coordinates.
+Depending upon the value of the flag the location is reported either as values between 0 and 100 or as coordinates of the stage.
+Note that because Posenet displays the video in a mirror-like fashion left and right are from the camera's viewpoint
+not the person whose pose is being analysed.
+</p>
+<figure class = "snap-iframe"
+        id = "pose"
+        full_screen = "true"
+        edit_mode = "true"
+        stage_ratio = ".1"
+        container_style = "width: 1000px; height: 750px;" 
+        caption = "A block for detecting the location of 17 different body parts. TRY IT">
+</figure>
+
+<h4 class="sample-program-white" id="simon-says-game">Using pose detection to implement a <i>Simon Says</i> game</h4>
+<p class="sample-program">
+Using the <span class="block-name">poses</span> block a <i>Simon Says</i> game can be built.
+It chooses whether to preface its statement with "Simon says" and picks two body parts for the player to bring together.
+</p>
+<figure class = "snap-iframe"
+        id = "simon says"
+        full_screen = "true"
+        container_style = "width: 1000px; height: 800px" 
+        caption = "Click the green flag to play Simon Says. TRY IT!">
+</figure>
+<p class="exercise">
+<b>Exercise.</b>
+The <a href="../snap/snap.html?project=simon%20says&noRun" target="_blank">
+full screen version of the game</a>
+can be enhanced in <a href="#simon-says-enhancements">many ways</a>.
+Be creative.
+</p>
+
+<h4 class="instructions-white" id="style-transfer">Creating images in the style of famous paintings</h4>
+<p class="instructions">
+Recently researchers have invented a way to use two machine learning programs to take an image and turn it into one that 
+looks like a famous painting.
+This is called <a href="https://medium.com/data-science-group-iitr/artistic-style-transfer-with-convolutional-neural-network-7ce2476039fd" target="_blank">style transfer</a>.
+The <span class="block-name">Create costume in style ...</span> block takes in a Snap! sprite costume
+(that can be any image or captured from the camera) and a style name and produces a new costume in that style.
+</p>
+<figure class = "snap-iframe"
+        id = "style transfer exercise"
+        full_screen = "true"
+        edit_mode = "true"
+        stage_ratio = ".83"
+        container_style = "width: 1000px; height: 800px" 
+        caption = "Click the block to take a photo and recreate it in the style you select. TRY IT!">
+</figure>
+<p class="instructions">
+The available styles are based upon these paintings:
+<div class="flow-row">
+<figure class="flow-row-child">
+<img src="../images/style-transfer/Tsunami_by_hokusai_19th_century.jpg">
+<figcaption><a href="https://en.wikipedia.org/wiki/The_Great_Wave_off_Kanagawa" target="_blank">Katsushika Hokusai's Great Wave off Kanagawa</a></figcaption>
+</figure>
+<figure class="flow-row-child">
+<img src="../images/style-transfer/udnie-young-american-girl-1913.jpg">
+<figcaption><a href="https://www.wikiart.org/en/francis-picabia/udnie-young-american-girl-1913" target="_blank">Francis Picabia's Udnie</a></figcaption>
+</figure>
+<figure  class="flow-row-child">
+<img src="../images/style-transfer/la-muse_picasso.jpg">
+<figcaption><a href="https://en.wikipedia.org/wiki/Pablo_Picasso" target="_blank">Pablo Picasso</a>'s La Muse</figcaption>
+</figure>
+<figure  class="flow-row-child">
+<img src="../images/style-transfer/mathura_worldmap.png">
+<figcaption><a href="https://mathuramg.com/fineArt.html" target="_blank">Mathura</a></figcaption>
+</figure>
+<figure class="flow-row-child">
+<img src="../images/style-transfer/rain-princess-leonid-afremov.jpg">
+<figcaption><a href="https://fineartamerica.com/featured/rain-princess-leonid-afremov.html" target="_blank">Leonid Afremov's Rain Princess</a></figcaption>
+</figure>
+<figure class="flow-row-child">
+<img src="../images/style-transfer/Edvard_Munch,_1893,_The_Scream,_oil,_tempera_and_pastel_on_cardboard,_91_x_73_cm,_National_Gallery_of_Norway.jpg">
+<figcaption><a href="https://en.wikipedia.org/wiki/The_Scream" target="_blank">Edvard Munch's Scream</a></figcaption>
+</figure>
+<figure class="flow-row-child">
+<img src="../images/style-transfer/Raft_of_the_Medusa.jpg">
+<figcaption><a href="https://en.wikipedia.org/wiki/The_Raft_of_the_Medusa" target="_blank">Th&eacuteodore G&eacutericault's Raft of the Medusa</a></figcaption>
+</figure>
+<figure class="flow-row-child">
+<img src="../images/style-transfer/Invaluable-Roberto-Matta-On-The-Edge-of-a-Dream.jpg">
+<figcaption><a href="https://www.invaluable.com/blog/artist-spotlight-roberto-matta/" target="_blank">Roberto Matta's On the Edge of a Dream</a></figcaption>
+</figure>
+</div>
+
+</p>
+<p class="sample-program">
+Here is a sample program that takes a photo and creates all available styles of it.
+It uses Snap!'s "ghost effect" to dissolve in and out the styled images.
+</p>
+<figure class = "snap-iframe"
+        id = "style transfer"
+        full_screen = "true"
+        container_style = "width: 800px; height: 600px" 
+        caption = "Click the green flag, smile, wait, sit back and watch. TRY IT!">
+</figure>
+<h4 class="how-it-works-white">How style transfer works</h4>
+<p class="how-it-works">
+The <span class="block-name">Create costume in style ...</span> block relies upon the work done by
+<a href="https://ml5js.org/docs/StyleTransfer" target="_blank">students at the New York University Tisch School of the Arts</a>
+who created web-based versions of style transfer models.
+Adapting it to work with Snap! was done by a high school student named Luie.
+The core idea is to use a deep learning model that can recognise images to generate a new image that
+matches well the low-level style features of the style image and at the same time matches the
+high-level content features of a content image.
+Another machine learning model has been trained to do this quickly.
+</p>
+<p class="how-it-works">
+A very good short video explaining how style transfer works is here:
+</p>
+<iframe class="background-information-white"
+        width="560" 
+        height="315"
+        style="display: block; margin-left:auto; margin-right: auto;" 
+        src="https://www.youtube.com/embed/WHmp26bh0tI?rel=0"
+        frameborder="0"
+        allow="autoplay; encrypted-media"
+        allowfullscreen>
+</iframe>
+
+<h4 class="project-ideas-white" id="project-ideas">Possible project ideas using machine learning</h4>
+<p class="project-ideas">
+Most of the <a class="guide-link" href="chapter-3.html#project-ideas" target="_blank">project ideas listed for using image recognition services</a>
+can be based upon the blocks described in this chapter.
+There is much that training by users enables that cloud services can't do.
+You can train the system to recognise yourself, distinguish between your friends,
+gestures, and the things that
+your robots may encounter in its particular environment.
+</p>
+<p class="project-ideas">
+Here are some project ideas that exploit the ability of users to train the system:
+</p>
+<ul class="project-ideas">
+<li>
+A different <i>Rock paper scissors</i> game would be one that is trained watching two human players.
+It can then keep score as people play the game.
+</li>
+<li>
+Yet another different <i>Rock paper scissors</i> game could learn patterns in how a human
+player plays and predict what they will do next with better than 1/3 accuracy.
+</li>
+<li>
+A scientific classification app.
+It could be trained to tell the name of a plant when shown one of its leaves,
+or identify insects, rocks, etc.
+</li>
+<li>
+An app that can tell a healthy plant from a sick or thirsty one.
+Or maybe one that can distinguish good bacteria from bad in water.
+</li>
+<li>
+Identifying different sounds. Train the system to identify what musical instrument is being played.
+Or which bird is singing.
+Or identify who is speaking.
+Or whether the tone of the voice is happy, sad, or angry.
+</li>
+<li>
+A robot that recognises gestures such as "stop" when it sees an outstretched palm.
+</li>
+<li>
+Control a game element with four hand positions for left, right, up, and down.
+Maybe left and right could be pointing left or right, up could be thumbs up, and down thumbs down.
+Create your own game, modify one already in Snap!, or <a href="https://djdolphin.github.io/Snapin8r2/" target="_blank">import a Scratch game</a>.
+This idea was inspired by this
+<a href="https://medium.com/@mariannelinharesm/playing-a-game-using-just-your-camera-with-deeplearnjs-ca156008f537" target="_blank">
+article about using hand gestures to play Tetris, Snake, and Asteroids</a>.
+</li>
+<li>
+A program that greets fellow students by name when they sit in front of the camera.
+</li>
+<li>
+A safety app that can tell if someone is lying on the floor or not.
+If someone is down for <i>x</i> minutes it contacts help.
+Or an app that can tell if a bed is empty or not and takes some action if the bed is occupied well after
+the time the occupant usually gets up.
+</li>
+<li>A sorting robot that is trained to distinguish a small number of different kinds of things.
+It then moves the items into piles for each kind of thing.
+</li>
+<li>
+Replace the mouse with four head movements: up, down, left, and right. 
+What could be used for "mouse click"?
+Who might want to use such a system?
+(For a playful example see
+<a href="https://storage.googleapis.com/tfjs-examples/webcam-transfer-learning/dist/index.html" target="_blank">this</a>).
+</li>
+<li>
+Train the computer to know which part of a face is being pointed to.
+Have the program do different things depending upon whether you point to your eyes, ears, or mouth.
+</li>
+<li>
+And thousands more. Be creative.
+</li>
+</ul>
+<p class="project-ideas">
+Many projects are possible by using the pose detection block and style transfer block:
+</p>
+<ul class="project-ideas">
+<li id="simon-says-enhancements">
+There are many improvements one can make to the <a href="#simon-says-game"><i>Simon Says</i></a> game.
+The nose is the only recognised body part that doesn't have a left and right version, try to add it to the game.
+Occasionally the game will say something like "touch your right wrist to your right wrist"; see if you can avoid that.
+Add score keeping.
+The game can be tuned to use better values for how close two body parts need to be to be touching.
+And what the minimal confidence that the body parts are what the system claims they are.
+The game gives players a limited amount of time to comply with instructions, try speeding up the game as it goes on.
+Maybe as it gets faster make the <a href="chapter-1.html" target="_blank">speech synthesis</a> go faster as well.
+The game shows what the camera sees add to the display the body parts that are to touch.
+If you are also doing a robotics project how can you combine it with this game?
+Think up even more ways to make the game better.
+</li>
+<li>
+Use body poses as program commands.
+E.g. hands over your head means stop while arms down means to continue.
+</li>
+<li>
+Display a pair of eyes that moves to the left or right as you do.
+</li>
+<li>
+Create a program that figures out how far away someone is from the camera.
+Hint how does the distance between the eyes change as someone moves closer?
+</li>
+<li>
+There are many other things one can use <a href="#pose-detection">pose detection</a> for than just <i>Simon Says</i>.
+Think animation, <a href="https://en.wikipedia.org/wiki/Telepresence" target="_blank">telepresence</a>,
+interactive art, fitness, sport science, security, and more.
+</li>
+<li>
+Create a virtual art museum filled with style transfer images.
+The content images can come from a camera, web pages, drawings, and screenshots of programs like Google Earth or Street View.
+</li>
+<li>
+And much more. Imagine art projects using style transfer or games using pose detection.
+</li>
+</ul>
+
+<p class="project-ideas">
+The <a href="https://machinelearningforkids.co.uk/#!/worksheets" target="_blank">machine learning for kids site</a>
+also has sample projects that can be adapted.
+</p>
+<h4 class="guide-to-guide-white">Future directions for this chapter</h4>
+<p class="guide-to-guide">
+Several enhancements to this chapter are planned.
+These include support for other kinds of input such as text or numbers.
+Interfaces to other pre-trained models are planned.
+</p>
+
+<h4 class="resources-white" id="additional-resources">Additional resources</h4>
+<p class="resources">
+In addition to the <a href="chapter-3.html#additional-resources" target="_blank">resources listed in the previous chapter</a>
+there is the <a href="https://teachinglondoncomputing.org/machine-learning/" target="_blank">Learning about machine learning website</a>.
+It has many "unplugged" activities and a long annotated list of resources appropriate for school students.
+The Royal Society has a
+<a href="https://royalsociety.org/topics-policy/projects/machine-learning/" target="_blank">good machine learning web site</a> that includes
+two very nice interactive infographics:
+<a href="https://royalsociety.org/topics-policy/projects/machine-learning/what-is-machine-learning-infographic/" target="_blank">
+What is machine learning?</a> and
+<a href="https://royalsociety.org/topics-policy/projects/machine-learning/machine-learning-in-the-world-around-you-infographic/" target="_blank">
+Machine learning in the world</a>.
+Technical details on the deep learning model used here are <a href="https://github.com/googlecreativelab/teachable-machine-boilerplate"
+target="_blank">documented here</a>.
+</p>
+<p class="resources">
+There is the <a href="https://ai.googleblog.com/2016/10/supercharging-style-transfer.html" target="_blank">Google blog post about style transfer</a>
+that explains the ideas and introduces the idea of generating images that match multiple styles.
+<a href="https://arxiv.org/pdf/1508.06576.pdf" target="_blank">A Neural Algorithm of Artistic Style</a> is the paper that pioneered
+the idea of using deep learning models to transfer style while preserving content.
+Recently <a href="https://www.bbc.co.uk/programmes/p06pb9lm" target="_blank">
+a painting created by a machine learning program was sold at a major art auction</a> for the first time.
+</p>
+<h4 class="guide-to-guide-white">Learn about AI and language</h4>
+<p class="guide-to-guide">
+Go to
+<a class="guide-link" href="chapter-5.html">the next chapter on using AI on words and sentences</a>
+</p>
+<p class="guide-to-guide">
+Return to 
+<a class="guide-link" href="chapter-3.html">the previous chapter on using image recognition services</a>.
+</p>
+<script src="../js/bottom-of-page.js"></script>
+</body>
+</html>

@@ -1,0 +1,109 @@
+<!doctype html>
+<html>
+<head>
+<script src="../js/load-scripts.js"></script>
+<script>
+load_local_or_remote_scripts(
+    ["../js/tfjs.js",
+     "../js/hyperparameters.min.js",
+     "../js/tfjs-vis.js",
+     "../js/dat.gui.js",
+     "../js/train.js",
+     "../tensorflow/tensorflow.js",
+     "./tic-tac-toe.js"]);
+     // using the same locally cached version so nothing breaks when released versions are updated
+</script>
+<link href="../css/ai-teacher-guide.css" rel="stylesheet">
+<title>Training a model to win Tic Tac Toe games</title>
+</head>
+<body style="margin: 0;
+             max-width: 800px;">
+<h2>
+Experiment with how to train a neural net to win at Tic Tac Toe
+</h2>
+<h3 id="settings" style="display:none">Settings</h3>
+<h3>Tutorial</h3>
+<p>
+To train the computer to play Tic Tac Toe we'll need to generate records of game play.
+The simplest way to start is for the computer to simulate both players making random (legal) moves.
+For every board position it records whether it eventually led to a win for X, O, or a tie.
+The trained model on each turn will then consider all possible moves and consider their relative scores.
+You can choose whether the trained computer player just picks the highest scoring move 
+or uses the scores as probabilities of making that move.
+</p>
+<p>
+Let's start by having the computer play games where both players just make random moves.
+You can choose how many games it will play in the settings panel that will appear at the top of this page.
+</p>
+<button id="create_data" class="support-window-button" >Create initial data</button>
+<p>
+<iframe src="../tensorflow/layers_help.html"
+        class=transparent_iframe
+        scrolling="no"
+        onload="this.style.height=this.contentDocument.body.scrollHeight +'px';"
+        width="800">
+</iframe>
+</p>
+<button disabled id="create_model" class="support-window-button">Create a model</button>
+<p>
+<iframe src="../tensorflow/training_help.html"
+        class=transparent_iframe
+        scrolling="no"
+        onload="this.style.height=this.contentDocument.body.scrollHeight +'px';"
+        width="800">
+</iframe>
+</p>
+<button disabled id="train" class="support-window-button">Train the model</button>
+<p>
+How good is the computer at playing Tic Tac Toe now that you've trained it?
+One test is how well does it score the first move for X.
+The center and corners should score higher than the others.
+</p>
+<p>
+Another way to evaluate the training is to have it play lots of games (you can decide how many in the Settings panel).
+You can have the trained model play against itself or against a player that makes random moves.
+If the player using the trained model always picks the highest scoring move then every game will be the same.
+Another strategy is to use the scores to determine the probability of making that move.
+High scoring moves are more likely than others but all moves can occur.
+If no moves have a positive score then all are considered likely to lead to a loss.
+In this case the least negative choice is selected.
+</p>
+<button disabled id="evaluate" class="support-window-button">Evaluate the training</button>
+<p>
+You can save a trained model to the local file system to load at a later time.
+</p>
+<button id="save_and_load" class="support-window-button">Saving and loading</button>
+<p>
+<iframe src="../tensorflow/hyperparameters_search.html"
+        class=transparent_iframe
+        scrolling="no"
+        onload="this.style.height=this.contentDocument.body.scrollHeight +'px';"
+        width="800">
+</iframe>
+</p>
+<button disabled id="optimize" class="support-window-button">Search for good parameter settings</button>
+</p>
+<h3>Things to try</h3>
+<p>
+Try different layer sizes for the model.
+Larger ones may lead to more accuracy at a cost of speed and memory usage.
+How does a narrow deep model compare with a wide shallower one?
+The learning rate is also worth exploring.
+One approach is to split the training up where each subsequent training session has a significantly smaller learning rate.
+Also set the number of iterations so that the learning is just levelling off so no need to waste time with more training.
+Experiment with different optimization methods and loss functions.
+</p>
+<p>
+In addition to experimenting with different parameter settings,
+one can use games played by trained players to do further training.
+The default settings is that games created during the evaluation phase are added
+to the dataset of games available during training.
+You can also use the games for validation.
+</p>
+<p>
+Challenge a friend or classmate (or all your classmates) to train the best Tic Tac Toe player.
+Run a thousand games for each contest to see whose player is stronger.
+</p>
+<script src="../js/bottom-of-page.js"></script>
+</body>
+</html>

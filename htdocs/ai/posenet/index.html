@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>PoseNet - Camera Feed Demo</title>
+    <link href="../css/ai-teacher-guide.css" rel="stylesheet">
+</head>
+
+<body>
+    <div id="loading">
+        Loading the model...
+    </div>
+    <p>
+        <b>Wait until the camera image appears before returning to Snap!.<br>
+        Feel free to play around with this page first.</b>
+    </p>
+    <div id="main" style="display:none">
+        <video autoplay="true" 
+               id="video"
+               style=" -moz-transform: scaleX(-1);
+                       -o-transform: scaleX(-1);
+                       -webkit-transform: scaleX(-1);
+                       transform: scaleX(-1);
+                     display: none;">
+        </video>
+        <canvas id="output">
+    </canvas></div>
+    <br>
+    <div class="footer">
+        <div class="footer-text">
+            <p>
+                PoseNet runs with either a <strong>single-pose</strong> or <strong>multi-pose</strong> detection algorithm. The single person pose detector is faster and more accurate but requires only one subject present in the image.
+                <br>
+                <br> The <strong>output stride</strong> and <strong>image scale factor</strong> have the largest effects on accuracy/speed. A <i>higher</i> output stride results in lower accuracy but higher speed. A <i>higher</i> image scale factor results in higher accuracy but lower speed.
+            </p>
+<script src="../js/load-scripts.js"></script>
+<script>
+load_local_or_remote_scripts(
+    ["../js/stats.min.js",
+     "../js/tfjs.js",
+     "../js/posenet.js",
+     "../js/dat.gui.js",
+     "demo_util.js",
+     "camera.js",
+     "../js/training-utilities.js",
+     "../js/translate.js"]);
+    // using the same locally cached version so nothing breaks when released versions are updated
+//      "https://cdn.jsdelivr.net/npm/@tensorflow/tfjs",
+//      "https://cdn.jsdelivr.net/npm/@tensorflow-models/posenet",
+//      "https://cdn.jsdelivr.net/npm/dat.gui",
+</script>
+</body>
+</html>

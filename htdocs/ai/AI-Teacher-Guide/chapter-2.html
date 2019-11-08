@@ -1,0 +1,559 @@
+<html><head><meta http-equiv="Content-Type" content="text/html; charset=windows-1252">
+<title>Adding listening to programs</title>
+<link href="../css/ai-teacher-guide.css" rel="stylesheet">
+<link rel="icon" type="image/png" href="../images/eCraft2Learn-Favicon.png" />
+<script src="../js/ai-guide.js"></script>
+</head>
+<body>
+<script src="../js/translate.js"></script>
+<h2>A guide to building AI apps and artefacts</h2>
+<h3>Chapter 2 - Adding listening to programs</h3>
+<h4>Ken Kahn, University of Oxford</h4>
+<h4 class="guide-to-guide-white">Browser compatibility</h4>
+<p class="guide-to-guide">
+This guide includes many interactive elements that currently only run well in the Chrome browser.
+This chapter relies upon there being a microphone connected to your computer.
+(Note that when running Linux (e.g. on a Raspberry Pi)
+one may need to configure the system or the browser to know how to access the microphone.)
+There is a <a href="troubleshooting.html" target="_blank">troubleshooting guide</a>
+that should be consulted if problems are encountered.
+</p>
+<h4 class="background-information-white">Introduction</h4>
+<p class="background-information">
+It is much easier to get a computer to start with text and end up with speech
+than to start with speech and end up with the corresponding text.
+Typically it is easier to get a computer to generate something than to recognise it.
+</p>
+
+<p class="background-information">
+Speech (and other sounds) cause vibrations in the air that cause vibrations in the computer's microphone.
+These vibrations are converted to numbers.
+Speech recognition begins with these numbers and attempts to determine what was said.
+As you'll see the process is not perfect, mistakes occur.
+</p>
+<h4 class="instructions-white">A simple speech recognition block</h4>
+<p class="instructions">
+Click on the following block, say something,
+then click on the <span class="block-name" translate=no>last thing heard</span> variable.
+If all is working well you should see what you just said.
+</p>
+
+<figure class = "snap-iframe"
+        id = "simple listen block"
+        container_style = "width: 725px; height: 300px" 
+        caption = "A simple block for turning speech into text. TRY IT">
+</figure>
+
+<p class="instructions">
+Try saying something, look at the result, click on the block again, say something else, and look again.
+</p>
+<p class="instructions">
+If you want to try another language then use the <span class="block-name">set default language</span> command.
+When possible the system will use the language given if no explicit language or voice is given to more advanced listening commands.
+There are many ways of specifying the language:
+(1) use the language's name in English,
+(2) use the language's name in the language, and
+(3) give the language code followed by the dialect code.
+E.g. en-GB for English as spoken in Great Britain.
+Language codes should be one of the <a href="https://en.wikipedia.org/wiki/IETF_language_tag" target="_blank">IETF language tags</a>.
+Google's Chrome browser supports over <a href="https://cloud.google.com/speech/docs/languages" target="_blank">100 languages</a>.
+If the language code and dialect code are the same you don't need to give both.
+E.g., fr will be treated as fr-FR.
+</p>
+
+<span class="non-essential">
+<h4 class="instructions-white">Speech recognition errors</h4>
+<p class="instructions">
+Speech recognition can encounter errors such as the inability to access the microphone.
+The most common "error" is when after several seconds nothing is heard.
+The <span class="block-name">listen then ...</span> block keeps listening until there is an error.
+When the speech recogniser notices that nothing has been said then
+the error block is given the text <span class="block-name">no-speech</span>.
+Other errors are <span class="block-name">audio-capture</span> when the browser can't find a microphone and 
+<span class="block-name">not-allowed</span> when permission to use the microphone hasn't been granted.
+Try the following and then be quiet for a while.
+</p>
+
+<figure class = "snap-iframe"
+        id = "listen error"
+        container_style = "width: 700px; height: 225px" 
+        caption = "A demonstration of listening errors (including nothing being spoken). TRY IT">
+</figure>
+</span>
+
+<h4 class="sample-program-white">A sample program using speech recognition (and synthesis)</h4>
+<p class="sample-program">
+The following program uses the <span class="block-name">listen then ...</span> block to control a sprite.
+You can tell it to go forward or to the turn right.
+It will then ask you how much and then execute the command.
+Say <span class="notranslate english" translate=no>"goodbye"</span> to quit the program.
+Sometimes you need to repeat what you said.
+Occasionally it will mishear you.
+</p>
+
+<figure class = "snap-iframe"
+        id = "command"
+        full_screen = "true"
+        container_style = "width: 800px; height: 600px" 
+        caption = "Click the green flag to to try a voice command example">
+</figure>
+
+<p class="sample-program">
+There is a
+<a href="../snap/snap.html?project=command&noRun" target="_blank">full screen version of this</a>.
+This program supports many ways of saying the same command word or phrase.
+A <a href="../snap/snap.html?project=command%20sentences&noRun" target="_blank">different program</a> expects the user to say full sentences
+and looks for numbers and the command words ('forward' and 'right') to respond.
+This version seems much more intelligent, but is it?
+</p>
+
+<p class="sample-program">
+A similar program could be written to control a physical device such as a robot or a set of lights.
+</p>
+<p class="exercise">
+<b>Exercise.</b> 
+See if you can add a <span class="notranslate english">"turn left"</span> command to the program.
+What else might be fun to try?
+Hint: how about changing size, looks, colour, or more?
+How about doing animations in response to spoken commands?
+</p>
+
+<span class="non-essential">
+<h4 class="how-it-works-white">How the spoken command program works</h4>
+<p class="how-it-works">
+If you click on <img src="images/show-blocks.png"> you'll see the blocks behind the program.
+If you then right click on <span class="block-name">speak turtle commands</span>
+and select 'edit' you'll see the following program.
+</p>
+
+<figure>
+<img src="images/command-program.png" class="center">
+<figcaption>The blocks that implement the speech command program</figcaption></figure>
+
+<p class="advanced-topic">
+Click to read an advanced topic
+</p>
+<span class="advanced-topic-body">
+<p class="advanced-information">
+The <span class="block-name">spoken</span> variable contains what was just recognised.
+The nested <span class="block-name">if-then-else</span> commands test first for speech for exiting the program,
+then for forward movement, and then turning commands.
+If none match then a 'not understood' response is created.
+Both the turning and moving commands cause the program to ask for an amount to turn or move.
+When a number is spoken the turtle then turns or moves appropriately.
+</p>
+</span>
+
+<p class="advanced-topic">Click to read another advanced topic</p>
+<span class="advanced-topic-body">
+<h4 class="advanced-information-white">An alternative way to do the same thing</h4>
+<p class="advanced-information">
+The command program relies upon what computer scientists call
+<span class="notranslate english" translate=no>'continuations'</span>.
+These are blocks of code that are executed when something happens, in this case when the speech is recognised.
+An alternative that is popular among Scratch programmers is to rely instead upon broadcasting messages.
+The following implements voice commands by using a helper command called 
+<span class="block-name">Broadcast speech recognition results and ...</span>.
+It broadcasts the message <span class="block-name">heard something</span>.
+The program fragments that listen for <span class="block-name">heard something</span> broadcasts need to know what was heard.
+The variable <span class="block-name">last thing heard</span> is used for this.
+(It also broadcasts speech recognition errors and sets the
+<span class="block-name">speech recognition error</span> if they occur.)
+This style of programming is perhaps easier for young children but it does have its limitations.
+For example, it is very difficult to implement a response when
+no other parts of the program understand what was said.
+The first version responds by saying it didn't understand what was said, repeats what it thinks it heard,
+and says to try again.
+The <a href="../snap/snap.html?project=command%20broadcast%202&noRun" target="_blank">broadcast version</a>
+cannot do so.</p>
+</span>
+</span>
+
+<h4 class="sample-program-white">An example project involving generating sentences using parts of speech concepts</h4>
+<p class="sample-program">
+The following sentence generating program starts with a random sentence "template".
+The program considers any word starting with "?" to be a variable that is replaced by asking the user for something of that sort.
+For example,
+</p>
+<blockquote class="notranslate english" translate=no>
+The silly ?PLURAL-NOUN like ?ADJECTIVE bananas.
+</blockquote>
+<p class="sample-program">
+will cause the program to first ask the user for a
+<span class="notranslate english" translate=no>"plural noun"</span>
+and then ask for an <span class="notranslate english" translate=no>"adjective"</span>.
+If the user answers <span class="notranslate english" translate=no>"potatoes"</span>
+and <span class="notranslate english" translate=no>"gigantic"</span> then the program says 
+<blockquote class="notranslate english" translate=no>
+The silly potatoes like gigantic bananas.
+</blockquote>
+</p>
+
+<figure class = "snap-iframe"
+        id = "part of speech broadcast"
+        full_screen = "true"
+        container_style = "width: 800px; height: 600px" 
+        caption = "Click the green flag to generate silly sentences">
+</figure>
+
+<p class="how-it-works non-essential">
+If you click on <img src="images/show-blocks.png"> you'll see the blocks behind the program.
+Let's look at the code to see how it works.
+</p>
+
+<figure>
+<img src="images/part-of-speech-code.png">
+<figcaption>Screenshot of the core of the program that asks for substitutions for words beginning with "?"</figcaption></figure>
+<p class="how-it-works non-essential">
+This part of the program goes through the sentence word by word pausing when a word or phrase starts with a "?".
+It pauses after asking for a substitution and
+then calls the <span class="block-name">Broadcast speech recognition results ...</span> command.
+The following code responds when something has been heard and interpreted:
+</p>
+<figure>
+<img src="images/part-of-speech-when-something-heard.png">
+<figcaption>Screenshot of the part of the program that responds to recognised words or phrases</figcaption></figure>
+
+<p class="how-it-works non-essential">
+It repeats what was heard and substitutes it into the list of words replacing the word starting with "?".
+</p>
+
+<p class="background-information non-essential">
+This example illustrates how to use speech synthesis and recognition to produce an application that is purely verbal.
+It is also an example of a program that crosses discipline boundaries.
+To generate grammatically correct (though often nonsense or silly) sentences one needs to reply upon grammatical concepts
+such as nouns, noun phrases, verbs, adjectives, and adverbs.
+Issues about number agreement and tenses arise naturally.
+Could a program like this work without grammatical ideas like nouns, verbs, adjectives, etc.?
+</p>
+
+<h4 class="sample-program-white" id="story-generator">A more sophisticated sentence (or story) generator</h4>
+<p class="sample-program">
+This following program extends the sentence generator by adding a new feature.
+If it encounters a word beginning with "=" it replaces it with the last response to the request
+for an example of that word/phrase.
+</p>
+
+<figure class = "snap-iframe"
+        id = "story generator"
+        full_screen = "true"
+        container_style = "width: 800px; height: 600px" 
+        caption = "Click the green flag to generate stories based upon your answers">
+</figure>
+
+<p class="sample-program">
+For example, consider this very short story:
+</p>
+<blockquote class="notranslate english" translate=no>
+This is a story about ?GIRLS-NAME.
+=GIRLS-NAME is ?ADJECTIVE and very ?ADJECTIVE.
+She travelled to ?PLACE-NAME. There she met ?BOYS-NAME who was a ?OCCUPATION in =PLACE-NAME.
+=GIRLS-NAME and =BOYS-NAME lived ?ADVERB ever after.
+</blockquote>
+<p class="sample-program">
+If the responses were
+<span class="notranslate english" translate=no>"Juliet"</span>,
+<span class="notranslate english" translate=no>"warm"</span>,
+<span class="notranslate english" translate=no>"beautiful"</span>,
+<span class="notranslate english" translate=no>"Verona"</span>,
+<span class="notranslate english" translate=no>"Romeo"</span>,
+<span class="notranslate english" translate=no>"amateur poet"</span>, and
+<span class="notranslate english" translate=no>"barely"</span>
+then the generated story is:
+</p>
+<blockquote class="notranslate english" translate=no>
+This is a story about Juliet.
+Juliet is warm and very beautiful.
+She travelled to Verona. There she met Romeo who was a amateur poet in Verona.
+Juliet and Romeo lived barely ever after.
+</blockquote>
+<p class="sample-program">
+You may want to enhance the program to turn
+<span class="notranslate english" translate=no>"a amateur"</span>
+into <span class="notranslate english" translate=no>"an amateur".</span>
+Try changing to have a different template story.
+</p>
+<p class="sample-program">
+If you click on <img src="images/show-blocks.png"> you'll see the blocks behind the program.
+</p>
+
+<h4 class="sample-program-white">A question answering demo</h4>
+<p class="sample-program">
+The following demo is a bit like Alexa, Cortana, and Google Assistant.
+It asks the user to say something and then sends those words off to Wikipedia.
+Typically there are many matches so it picks one at random and says it.
+</p>
+
+<figure class = "snap-iframe"
+        id = "Wikipedia answers"
+        full_screen = "true"
+        container_style = "width: 800px; height: 600px" 
+        caption = "Click the green flag and then say a word or short phrase">
+</figure>
+
+<figure class="non-essential">
+<img src="images/ask-wikipedia-program.png" class="center">
+<figcaption>Screen shot of the entire 'Ask Wikipedia' program</figcaption>
+</figure>
+
+<h4 class="sample-program-white">A weather service demo</h4>
+<p class="sample-program">
+The following demo is another one that is like Alexa, Cortana, and Google Assistant.
+It waits for the user to say a sentence containing a place name and words such as 'wind', 'forecast', or 'atmosphere'.
+It guesses that any words that are capitalised make up the place name, like "New York City".
+<a href="https://developer.yahoo.com/weather/documentation.html" target="_blank">Yahoo! weather service</a>
+is then contacted and the response is spoken and displayed.
+The weather program can be enhanced in many ways. Try it.
+</p>
+
+<figure class = "snap-iframe"
+        id = "weather"
+        full_screen = "true"
+        container_style = "width: 800px; height: 600px" 
+        caption = "Click the green flag and follow its instructions on how to ask for weather information. TRY IT">
+</figure>
+
+<p class="instructions">
+The weather demo project uses this <span class="block-name">weather in ...</span> block.
+It responds with <a href="https://developer.yahoo.com/weather/documentation.html" target="_blank">
+a table from the Yahoo! weather service</a>.
+</p>
+
+<figure class = "snap-iframe"
+        id = "weather exercise"
+        container_style = "width: 800px; height: 300px" 
+        caption = "Click the reporter and see what kinds of information it can access.">
+</figure>
+
+<h4 class="societal-impact-white">What is speech recognition good for?</h4>
+<p class="societal-impact">
+Speech recognition can be used to transcribe spoken speech.
+Those unable to type or write can use it to communicate textually and to generate notes and reports.
+There are many specialised contexts where it can be very useful.
+For example, <a href="https://research.googleblog.com/2017/11/understanding-medical-conversations.html" target="_blank">
+doctors can produce transcripts of their conversations with patients</a>, thereby improving the patient's records.
+Automatic transcription can enable textual searches within videos.
+It can be used to generate captions for videos.
+Combined with translation, speech recognition can provide input to translation services
+and its output can be converted to speech in another language.
+</p>
+
+<p class="societal-impact">
+Another use of speech recognition is as an interface to computers or digital artefacts.
+An application or a robot can be constructed that takes verbal commands.
+This is particularly empowering for people with disabilities who can't themselves perform those tasks.
+Assistants like Siri or Alexa can provide helpful responses to spoken queries.
+Verbal input and output can be the safest way to communicate in some circumstances such as when driving or piloting.
+</p>
+
+<h4 class="societal-impact-white">What are the dangers of speech recognition?</h4>
+<p class="societal-impact">
+Like many technologies speech recognition can be misused.
+It could be used for widespread spying on a population.
+It could be part of the basis for replacing human interactions with call-centre help services with computers
+that lack the kind of understanding and empathy that people can provide.
+By reducing drastically the cost of telemarketing calls by automating them they can become a more frequent annoyance.
+The use of <a href="https://www.wired.com/story/companion-robots-are-here/" target="_blank">companion robots</a> to
+provide social support is controversial since again the robots may lack understanding and empathy.
+Speech technology has become part of
+<a href="https://www.theguardian.com/technology/2017/sep/10/should-robot-be-your-childs-best-friend" target="_blank">
+interactive toys</a> and children become too emotionally attached to them.
+</p>
+
+<p class="teacher-guide societal-impact">
+The benefits and dangers of speech technology could be good topic for student discussions.
+</p>
+<p class="societal-impact">
+Do you think the benefits outweigh the dangers?
+Is there a way the dangers can be avoided?
+</p>
+
+<h4 class="non-essential">How does speech recognition work?</h4>
+<p class="how-it-works">
+It begins with the microphone that converts vibrations in the air (i.e. sounds) to numbers
+(using something called an analog-to-digital converter).
+The digitised sound is broken into short segments (hundredths or thousandths of a second long)
+and fed into a recognition engine.
+Today the best ones rely upon
+<a href="https://en.wikipedia.org/wiki/Artificial_neural_network" target="_blank">neural nets</a>.
+Complex statistical programs are also often used.
+</p>
+
+<p class="how-it-works">
+There are many challenges including the wide range of voices, dialects, and accents
+that a speech recognition engine may encounter.
+There is often background noise that needs to be removed from the signal.
+</p>
+
+<p class="how-it-works">
+Other challenges come from the complexity of human languages.
+There are many words that are <a href="https://en.wikipedia.org/wiki/Homonym" target="_blank">hononyms</a>,
+different words that sound the same.
+Separating speech into separate words is difficult.
+A classic example is how <span class="notranslate english" translate=no>"recognise speech"</span>
+sounds a lot like
+<span class="notranslate english" translate=no>"wreck a nice beach"</span>.
+</p>
+
+<p class="societal-impact">
+As one uses the blocks and sample programs of this chapter one will often encounter errors.
+These are sometimes amusing, especially when it leads the program to do something silly.
+For applications where computer mistakes can cause serious problems one can build the interface so it asks confirmation before proceeding.
+It is interesting to compare speech recognition errors to the kind and frequency of the errors that humans make when listening to speech.
+</p>
+
+<p class="exercise">
+<b>Exercise.</b>
+Find a list of things that people mishear or use the examples in 
+<a href="https://www.huffingtonpost.com/shawn-amos/excuse-me-while-i-kiss-th_b_167446.html" target="_blank">
+this article about lyrics that people misunderstand</a>.
+See how well the <span class="block-name">listen</span> block does when saying these examples.
+Does the system make the same kinds of mistakes people do?
+What can one say about a speech recogniser if it makes the same mistakes as people?
+What if its mistakes are different?
+</p>
+
+<h4 class="project-ideas-white" id="project-ideas">Ideas for projects using speech synthesis and recognition</h4>
+<p class="project-ideas">
+Here are some ideas for projects using speech recognition
+(and sometimes also use speech synthesis as described in 
+<a class="guide-link" href="chapter-1.html">Chapter 1</a>).
+<ul class="project-ideas">
+<li>A robot that responds to commands such as "forward", "left", "right", and "stop".</li>
+<li>A chatbot that can (pretend to) talk about a particular subject.
+Chatbots have a <a href="https://en.wikipedia.org/wiki/ELIZA" target="_blank">history going back over fifty years</a>
+but it is only recently that speech can replace typing as the way to communicate with a chatbot.</li>
+<li>Another example of a textual program that can be reconceived as a verbal program
+are <a href="https://en.wikipedia.org/wiki/Adventure_game#Text_adventures_and_Interactive_Fiction" target="_blank">adventure games</a>.
+A virtual world is simulated where one can navigate by saying things like "walk north" or "open door"
+and hearing responses such as 
+"you now see a castle in the distance" and "the door is locked".
+This can result in a computer game that blind people can play
+(or drivers can play without taking their eyes off the road).</li>
+<li>Guessing games such as "guess what number I'm thinking of".
+The computer can either pick a number and respond to guesses with "warmer" or "colder".
+Or the computer can guess numbers and listen for the words "warmer" or "colder" to decide what to guess next.</li>
+<li>Telling or responding to knock knock jokes.</li>
+<li>An interactive artwork that responds differently depending upon if it hears is something positive or negative. 
+It could do so by searching for key words and phrases in what it hears or
+it could connect to a <a href="https://en.wikipedia.org/wiki/Sentiment_analysis" target="_blank">sentiment analysis</a> service.</li>
+<li>Putting together two speech apps so they interact.
+For example, the part-of-speech sample program described earlier could be paired with a program that searches for keywords such as
+"noun", "verb", etc. and then responds with a random entry in the corresponding list.
+This could be even more exciting if the two apps were placed into some physical devices that "converse".</li>
+<li>And thousands of other things.</li>
+</ul>
+</p>
+
+<h4 class="non-essential">A full-featured speech recognition block</h4>
+<p class="advanced-information non-essential">
+The speech recognition engines typically can do more than
+the basic <span class="block-name">listen then ...</span> block described above.
+One can specify which language is expected.
+The engine can report interim results and alternative results.
+It can provide 'confidence' values indicating how certain it is that it recognised the speech correctly.
+All of these functionalities are provided by this block:
+</p>
+
+<figure class = "snap-iframe non-essential"
+        id = "complex listen block"
+        container_style = "width: 600px; height: 300px" 
+        caption = "A full-featured block for turning speech into text. TRY IT">
+</figure>
+
+<p class="advanced-information non-essential">The arguments to this block are (any of them can be left blank):
+</p>
+<ol class="advanced-information non-essential">
+<li>The first argument are blocks that receive interim results as they are produced.</li>
+<li>The next argument are blocks that receive the final result.</li>
+<li>The next argument receives errors if there are any.</li>
+<li>Text that indicates the language followed by the dialect.
+E.g. en-GB for English as spoken in Great Britain.
+It should be one of the <a href="https://en.wikipedia.org/wiki/IETF_language_tag" target="_blank">IETF language tags</a>.
+Google's Chrome browser supports over <a href="https://cloud.google.com/speech/docs/languages" target="_blank">100 languages</a>.
+</li>
+<li>The maximum number of alternative recognition results.
+If not provided it is 1. Note the recognition engine may return fewer results.</li>
+<li>Blocks that receive a list of alternative results.</li>
+<li>Blocks that receive a list of confidence numbers corresponding to the alternative results.
+0 means no confidence while 1 is the highest confidence.</li>
+</ol>
+<p class="advanced-information non-essential">
+Note that for Google's speech recognition engine currently only the first alternative has a non-zero confidence.
+</p>
+
+<p class="advanced-information non-essential">
+Watching the interim results can provide some insight into the process of recognition.
+You can test this using the above block where you put the <span class="block-name">say</span>
+block with an empty text field in the first argument.
+(Snap! interprets an empty field in this context as the input to the blocks (in this case the current interim result).)
+For example, if you say <span class="notranslate english" translate=no>"red"</span>
+you'll see <span class="notranslate english" translate=no>"red"</span>
+but if you soon afterwards say <span class="notranslate english" translate=no>"a book"</span>
+you'll see <span class="notranslate english" translate=no>"red"</span> become
+<span class="notranslate english" translate=no>"read a book"</span>.
+You can see the same phenomenon at <a href="https://www.google.com/intl/en/chrome/demos/speech.html" target="_blank">this Google demo</a>.
+</p>
+
+<p class="advanced-information non-essential">
+There is much one can explore with the 'language' option.
+For example, if one selects 'fr-FR' (French as spoken in France) and then says
+<span class="notranslate english" translate=no>"une deux trois quatre five six"</span>
+the result is "1 2 3 4 5 6".
+Notice that it recognises both French and English.
+(English is probably used because it the operating system language setting on my computer --
+if your computer is configured with another language it probably will be the default.)
+Strangely if with English you say <span class="notranslate english" translate=no>"one two three four five six"</span>
+you get those words,
+not the digits one sees with the French setting.
+</p>
+
+<p class="exercise">
+<b>Exercise.</b>
+Explore how well the system recognises numbers in different languages.
+You can use <a href="translate.google.com" target="_blank">Google Translate</a> to learn how to say 
+numbers in languages you don't know.
+Try fractions and negative numbers.
+Try very big numbers.
+</p>
+
+<h4 class="resources-white">Additional resources</h4>
+<p class="resources">
+<a href="https://developer.mozilla.org/en-US/docs/Web/API/SpeechRecognition" target="_blank">
+This documentation of speech recognition</a>
+is a very complete description of speech recognition features browsers should support.
+(Chrome currently is the only one but other browser developers are working on it.)
+</p>
+
+<p class="resources">
+<a class="notranslate english" translate=no href="https://electronics.howstuffworks.com/gadgets/high-tech-gadgets/speech-recognition.htm" target="_blank">How stuff works</a>
+has a clear explanation of how speech recognition systems work and what the challenges are.
+(Though it is a bit dated.)
+</p>
+
+<p class="resources">
+<a href="https://en.wikipedia.org/wiki/Speech_recognition" target="_blank">
+Wikipedia</a>, as usual, covers the topic well.
+</p>
+
+<p class="resources">
+We wrote a paper entitled
+<a href="https://ora.ox.ac.uk/objects/uuid:12124254-acce-4c11-a540-19e74530798d" target="_blank">
+Child-friendly programming interfaces to AI cloud services</a>
+that discusses these Snap! speech synthesis and recognition blocks.</p>
+
+<script src="../js/where-to-get-library.js"></script>
+
+<h4 class="guide-to-guide-white">Learn about image input</h4>
+<p class="guide-to-guide">
+Go to 
+<a class="guide-link" href="chapter-3.html">the next chapter on image recognition</a>.
+</p>
+<p class="guide-to-guide">
+Return to
+<a class="guide-link" href="chapter-1.html">the previous chapter on speech output</a>.
+</p>
+<script src="../js/bottom-of-page.js"></script>
+
+</body>
+</html>
