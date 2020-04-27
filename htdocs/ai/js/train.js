@@ -63,18 +63,49 @@ const set_random_number_seed = (options) => {
     }   
 };
 
+let next_slice = () => {
+    console.log("next_slice not defined");
+};
+
 const create_and_train_model = (options, success_callback, failure_callback) => {
 //     record_callbacks(success_callback, failure_callback); // this isn't meant to be called by Snap!
+    options.success_callback = success_callback;
     set_random_number_seed(options);
-    const model = create_model(options, failure_callback);
-    return train_model(model, options.datasets, options, success_callback, failure_callback);
+    let model = create_model(options, failure_callback);
+    let new_success_callback;
+    if (options.slices_to_use) {
+        next_slice = () => {
+            next_slice_number(options);
+            load_slice(options,
+                       () => {
+                           redo_training(model, options, success_callback, failure_callback);
+                       });
+        };
+        // following led to out-of-memory errors - so running next_slice manually
+//         new_success_callback = (results) => {
+//             success_callback(results, next_slice);
+//         };
+    }
+    return train_model(model, options.datasets, options, (new_success_callback || success_callback), failure_callback);
+};
+
+const next_slice_number = (options) => {
+    // slice number is so can train with 1/n and then the next 1/n, etc.
+    if (options.slices_to_use) {
+        options.slice_number = options.slices_to_use[0];
+        options.slices_to_use = options.slices_to_use.slice(1);
+    } else {
+        if (!options.slice_number) {
+            options.slice_number = 0;
+        }
+    }
 };
 
 const create_model = (options, failure_callback) => {
     record_callbacks(failure_callback);
     try {
         const {model_name, hidden_layer_sizes, dropout_rate, optimizer, layer_initializer, batch_normalization, regularizer, learning_rate,
-               loss_function, activation, last_activation, seed, datasets} = options;
+               loss_function, activation, last_activation, seed, datasets, custom_model_builder, load_model_for_further_training} = options;
         const tfvis_options = typeof tfvis === 'object' ? options.tfvis_options || {} : {}; // ignore options if tfvis not loaded
         training_number = options.training_number;
         let class_names = options.class_names;
@@ -110,17 +141,8 @@ const create_model = (options, failure_callback) => {
                                     });
             }
         }
-        let model = tf.sequential({name: model_name});
-        const tfjs_function = (fun, function_table, layer_index) => {
-            if (!fun) {
-                return;
-            }
-            if (typeof fun === 'string') {
-                return function_table[fun]({});
-            }
-            return fun(layer_index);
-        };
         if (datasets) {
+            // transfer treats last layer with custom code
             let output_size;
             if (datasets.ys_array) {
                 output_size = typeof datasets.ys_array[0] === 'number' ? 1 : datasets.ys_array[0].length;
@@ -132,47 +154,66 @@ const create_model = (options, failure_callback) => {
                 hidden_layer_sizes.push(output_size);
             }
         }
-        hidden_layer_sizes.forEach((size, index) => {
-            const last_layer = index === hidden_layer_sizes.length-1;
-            const kernelRegularizer = last_layer ? undefined : tfjs_function(regularizer, tf.regularizers, index);
-            const kernelInitializer = last_layer ? undefined : tfjs_function(layer_initializer, tf.initializers, index);
-            const activation_function = (typeof activation === 'string' ? activation : tfjs_function(activation, tf.layers, index)) || 'relu';
-            const configuration = {inputShape: index === 0 ? input_shape : undefined,
-                                   units: last_layer && class_names ? class_names.length : +size,
-                                   activation: last_layer ? last_activation || (class_names && 'softmax') : activation_function,
-                                   kernelInitializer,
-                                   kernelRegularizer,
-                                   useBias: !last_layer, // last one has no bias 
-                                  };
-            model.add(tf.layers.dense(configuration));
-            if (!last_layer) {
-                if (dropout_rate > 0) {
-                    model.add(tf.layers.dropout({rate: dropout_rate}));
+        const build_model = () => {
+            let model = tf.sequential({name: model_name});
+            hidden_layer_sizes.forEach((size, index) => {
+                const last_layer = index === hidden_layer_sizes.length-1;
+                const kernelRegularizer = last_layer ? undefined : tfjs_function(regularizer, tf.regularizers, index);
+                const kernelInitializer = last_layer ? undefined : tfjs_function(layer_initializer, tf.initializers, index);
+                const activation_function = (typeof activation === 'string' ? activation : tfjs_function(activation, tf.layers, index)) || 'relu';
+                const configuration = {inputShape: index === 0 ? input_shape : undefined,
+                                       units: last_layer && class_names ? class_names.length : +size,
+                                       activation: last_layer ? last_activation || (class_names && 'softmax') : activation_function,
+                                       kernelInitializer,
+                                       kernelRegularizer,
+                                       useBias: !last_layer, // last one has no bias 
+                                      };
+                model.add(tf.layers.dense(configuration));
+                if (!last_layer) {
+                    if (dropout_rate > 0) {
+                        model.add(tf.layers.dropout({rate: dropout_rate}));
+                    }
+                    if (batch_normalization) {
+                        const args = typeof batch_normalization === 'boolean' ? undefined : batch_normalization;
+                        model.add(tf.layers.batchNormalization(args));
+                    }
                 }
-                if (batch_normalization) {
-                    const args = typeof batch_normalization === 'boolean' ? undefined : batch_normalization;
-                    model.add(tf.layers.batchNormalization(args));
-                }
-            }
-       });
-       // We use categoricalCrossentropy which is the loss function we use for
-       // categorical classification which measures the error between our predicted
-       // probability distribution over classes (probability that an input is of each
-       // class), versus the label (100% probability in the true class)
-       const optimizer_function = ['Momentum', 'momentum'].includes(optimizer) ? 
-                                  tf.train.momentum((typeof learning_rate === 'undefined' ? .001 : learning_rate), .9) :
-                                  (typeof optimizer === 'string' ? tf.train[optimizer]() : 
-                                  (typeof optimizer === 'object' ? optimizer : optimizer()));
-       const loss = (typeof loss_function === 'string' ?  tf.losses[loss_function] : loss_function) || 
-                    (class_names ? 'categoricalCrossentropy' : 'meanSquaredError');
-       const compile_options = {optimizer: optimizer_function,
-                               loss,
-                               metrics: class_names && ['accuracy']};
-       model.compile(compile_options);
-       if (tfvis_options.display_layers_after_creation) {
-           show_layers(model, 'Model after creation');
-       }
-       return model;
+           });
+           return model;
+        };
+        const compile_model = (model) => {
+           // We use categoricalCrossentropy which is the loss function we use for
+           // categorical classification which measures the error between our predicted
+           // probability distribution over classes (probability that an input is of each
+           // class), versus the label (100% probability in the true class)
+           const optimizer_function = ['Momentum', 'momentum'].includes(optimizer) ? 
+                                      tf.train.momentum((typeof learning_rate === 'undefined' ? .001 : learning_rate), .9) :
+                                      (typeof optimizer === 'string' ? optimizer : 
+                                      (typeof optimizer === 'object' ? optimizer : optimizer()));
+           let loss;
+           if (typeof loss_function === 'object') {
+               loss = loss_function;
+           } else if (class_names) {
+               loss = 'categoricalCrossentropy';
+               if (typeof loss_function === 'string' && loss_function !== loss && loss_function !== 'Softmax Cross Entropy') {
+                   console.log("Ignoring loss function '" + loss_function + "' and using instead '" + loss + "'");
+               }
+           } else if (typeof loss_function === 'string') {
+               loss = tf.losses[loss_function] || loss_function;
+           } else {
+               loss = 'meanSquaredError';
+           }
+           const compile_options = {optimizer: optimizer_function,
+                                    loss,
+                                    metrics: class_names && ['accuracy','crossentropy']};
+           model.compile(compile_options);
+        };
+        let model = (typeof loaded_model !== 'undefined' && loaded_model) || (custom_model_builder ? custom_model_builder() : build_model());
+        compile_model(model);
+        if (tfvis_options.display_layers_after_creation) {
+            show_layers(model, 'Model after creation');
+        }
+        return model;
   } catch (error) {
       if (failure_callback) {
           invoke_callback(failure_callback, error);
@@ -182,35 +223,56 @@ const create_model = (options, failure_callback) => {
   }
 };
 
+const tfjs_function = (fun, function_table, layer_index) => {
+    if (!fun) {
+        return;
+    }
+    if (typeof fun === 'string') {
+        return function_table[fun]({});
+    }
+    return fun(layer_index);
+};
+
 const show_layers = (model, tab_name) => {
-    const surface = {name: 'Layers', tab: tab_label(tab_name)};
-    tfvis.show.modelSummary(surface, model);
-    model.layers.forEach((layer, index) => {
-        surface.name = "Layer#" + index;
-        tfvis.show.layer(surface, layer);
+    tf.tidy(() => {
+        const surface = {name: 'Layers', tab: tab_label(tab_name)};
+        tfvis.show.modelSummary(surface, model);
+        model.layers.forEach((layer, index) => {
+            surface.name = "Layer#" + index;
+            tfvis.show.layer(surface, layer);
+        });
     });
 };
 
 let training_number;
 const tab_label = (label) => label + (typeof training_number === 'undefined' ? '' : '#' + training_number);
 
-const update_tensors = (datasets) => {
+const update_tensors = (datasets, batch_size) => {
     let {xs_array, ys_array, xs_validation_array, ys_validation_array, xs_test_array, ys_test_array} = datasets;
-    tf.dispose(datasets.xs);
-    datasets.xs = tf.tensor(xs_array);
-    tf.dispose(datasets.ys);
-    datasets.ys = tf.tensor(ys_array);
-    tf.dispose(datasets.xs_validation);
-    datasets.xs_validation = xs_validation_array && xs_validation_array.length > 0 && tf.tensor(xs_validation_array);
-    tf.dispose(datasets.ys_validation);
-    datasets.ys_validation = ys_validation_array && ys_validation_array.length > 0 && tf.tensor(ys_validation_array);
-    tf.dispose(datasets.xs_test);
-    datasets.xs_test = xs_test_array && xs_test_array.length > 0 && tf.tensor(xs_test_array);
-    tf.dispose(datasets.ys_test);
-    datasets.ys_test = ys_test_array && ys_test_array.length > 0 && tf.tensor(ys_test_array);
+    if (datasets.use_tf_datasets) {
+        // could add batch and/or shuffle here
+        datasets.train = tf.data.zip({xs: tf.data.array(xs_array), 
+                                      ys: tf.data.array(ys_array)}).batch(batch_size);
+        datasets.validation = tf.data.zip({xs: tf.data.array(xs_validation_array), 
+                                           ys: tf.data.array(ys_validation_array)}).batch(batch_size);
+    } else {
+        tf.dispose(datasets.xs);
+        datasets.xs = tf.tensor(xs_array);
+        tf.dispose(datasets.ys);
+        datasets.ys = tf.tensor(ys_array);
+        tf.dispose(datasets.xs_validation);
+        datasets.xs_validation = xs_validation_array && xs_validation_array.length > 0 && tf.tensor(xs_validation_array);
+        tf.dispose(datasets.ys_validation);
+        datasets.ys_validation = ys_validation_array && ys_validation_array.length > 0 && tf.tensor(ys_validation_array);
+        // not sure the tests need to become tensors
+        tf.dispose(datasets.xs_test);
+        datasets.xs_test = xs_test_array && xs_test_array.length > 0 && tf.tensor(xs_test_array);
+        tf.dispose(datasets.ys_test);
+        datasets.ys_test = ys_test_array && ys_test_array.length > 0 && tf.tensor(ys_test_array);
+    }
 };
 
-const split_data = (datasets, options) => {
+const split_data = (datasets, options, fraction_to_keep) => {
     // if I want reproducability I should use tf.randomUniform with a seed
     if (!datasets.xs_array) {
         datasets.xs_array = datasets.xs.arraySync();
@@ -223,11 +285,11 @@ const split_data = (datasets, options) => {
         datasets.original_ys = datasets.ys_array;
     }
     const {original_xs, original_ys} = datasets;
-    const {fraction_kept, validation_fraction, testing_fraction} = options;
-    let xs_ys = original_xs.map((x,index) => [x, original_ys[index]]);
+    const {validation_fraction, testing_fraction} = options;
+    let xs_ys = original_xs.map((x, index) => [x, original_ys[index]]);
     tf.util.shuffle(xs_ys);
-    if (fraction_kept < 1) {
-        xs_ys.splice(Math.round((1 - fraction_kept) * xs_ys.length));
+    if (fraction_to_keep < 1) {
+        xs_ys.splice(Math.round(fraction_to_keep * xs_ys.length));
     }
     xs_ys = xs_ys.sort((a,b) => a[1].indexOf(1) - b[1].indexOf(1));
     // sort by class to make equal quantities
@@ -252,18 +314,18 @@ const split_data = (datasets, options) => {
     const new_count = xs_ys.length - (validation_count_per_class + test_count_per_class) * output_size;
     const validation_ends = starts.map((start) => start + validation_count_per_class);
     let xs_ys_validation = [];
-    validation_ends.forEach((end,index) => {
+    validation_ends.forEach((end, index) => {
         xs_ys_validation = xs_ys_validation.concat(xs_ys.slice(starts[index], end));
     });
     const test_ends = validation_ends.map((start) => start + test_count_per_class);
     let xs_ys_test = [];
-    test_ends.forEach((end,index) => {
+    test_ends.forEach((end, index) => {
         xs_ys_test = xs_ys_test.concat(xs_ys.slice(validation_ends[index], end));
     });
     let new_xs_ys = [];
     starts.push(xs_ys.length);
     // so starts [index+1] is the end of the class
-    test_ends.forEach((test_end,index) => {
+    test_ends.forEach((test_end, index) => {
         new_xs_ys = new_xs_ys.concat(xs_ys.slice(test_ends[index], starts[index + 1]));
     });
     datasets.xs_validation_array = xs_ys_validation.map((x_y) => x_y[0]);
@@ -278,6 +340,7 @@ const split_data = (datasets, options) => {
     }
     datasets.xs_array = new_xs_ys.map((x_y) => x_y[0]);
     datasets.ys_array = new_xs_ys.map((x_y) => x_y[1]);
+    datasets.already_split = true;
 };
 
 const update_best_weights = (model, best_weights) => {
@@ -296,7 +359,7 @@ const update_best_weights = (model, best_weights) => {
 };
 
 const set_model_weights = (model, best_weights) => {
-    if (best_weights) {
+    if (best_weights && best_weights.length === model.layers) {
         try {
             model.layers.forEach((layer, index) => {
                 layer.setWeights(best_weights[index]);
@@ -309,6 +372,8 @@ const set_model_weights = (model, best_weights) => {
 };
 
 const not_a_number_error_message = "Training loss has become 'not-a-number'.";
+
+const reload_datasets_label = "Replace datasets";
 
 const train_model = (model, datasets, options, success_callback, failure_callback) => {
     let error_message;
@@ -333,21 +398,48 @@ const train_model = (model, datasets, options, success_callback, failure_callbac
                        loss: 'meanSquaredError'});
     }
     const {class_names, batch_size, shuffle, epochs, validation_split, learning_rate, dropout_rate, batch_normalization, optimizer,
-           layer_initializer, regularizer, seed, stop_if_no_progress_for_n_epochs,
-           testing_fraction, validation_fraction, fraction_kept, split_data_on_each_experiment} 
+           layer_initializer, regularizer, seed, stop_if_no_progress_for_n_epochs, initialEpoch, slices_to_use,
+           testing_fraction, validation_fraction, fraction_kept, split_data_on_each_experiment, compute_confusion_matrices} 
           = options;
+    const number_of_training_epochs = epochs;
+    const use_tf_datasets = datasets.use_tf_datasets;
     const tfvis_options = typeof tfvis === 'object' ? options.tfvis_options || {} : {}; // ignore options if tfvis not loaded
     const model_name = model.name;
-    const splitting_data = split_data_on_each_experiment ||
+    const splitting_data = (split_data_on_each_experiment && !initialEpoch) || // not doing additional training
                            ((typeof datasets.xs_validation_array === 'undefined' || datasets.xs_validation_array.length === 0) && // no validation data provided
-                            typeof validation_fraction === 'number' && typeof testing_fraction === 'number');
-    if (splitting_data) {
-        split_data(datasets, options);
+                            typeof datasets.train === 'undefined' &&
+                            typeof validation_fraction === 'number' && 
+                            typeof testing_fraction === 'number');
+    const tab_name = tab_label('Training');
+    const surface_name = tfvis_options.measure_accuracy ? 'Loss and accuracy' : 'Loss';
+    let train_again_button;
+    const add_train_again_button = () => {
+        const surface = tfvis.visor().surface({name: surface_name, tab: tab_name});
+        const draw_area = surface.drawArea;
+        train_again_button = document.createElement('button');
+        train_again_button.innerHTML = "Do more training";
+        train_again_button.addEventListener('click', 
+                                            () => {
+                                                redo_training(model, options, success_callback, failure_callback);
+                                            });
+        draw_area.appendChild(train_again_button);
+        if (options.replace_datasets) {
+            reload_datasets_button.innerHTML = reload_datasets_label;
+            reload_datasets_button.addEventListener('click',
+                () => {
+                    model_options.slice_number++;
+                    load_slice(model_options);
+                });
+            draw_area.appendChild(reload_datasets_button);
+        }
     }
-    const create_tensors = !!datasets.xs_array;
+    if (splitting_data && !datasets.already_split) {
+        split_data(datasets, options, options.fraction_kept);
+    }
+    const create_tensors = !!datasets.xs_array && !datasets.train;
     if (create_tensors) {
         // datasets are JavaScript arrays (prior to possible splitting) so compute tensor version
-        update_tensors(datasets);
+        update_tensors(datasets, batch_size);
     }
     try {
         training_number = options.training_number;
@@ -362,12 +454,15 @@ const train_model = (model, datasets, options, success_callback, failure_callbac
             model.optimizer.learningRate = learning_rate;
         }
         const container = tfvis_options.display_graphs &&
-                          {name: tfvis_options.measure_accuracy ? 'Loss and accuracy' : 'Loss',
-                           tab: tab_label('Training'),
+                          {name: surface_name,
+                           tab: tab_name,
                            styles: {height: tfvis_options.container_height ? 
                                             tfvis_options.container_height : 
                                             tfvis_options.measure_accuracy ? 800 : 400}}; 
         const tfvis_callbacks = tfvis_options.display_graphs && tfvis.show.fitCallbacks(container, metrics, tfvis_options);
+        if (!train_again_button && slices_to_use) {
+            add_train_again_button();
+        }
         // auto_stop replaced by the more controllable stop_if_no_progress_for_n_epochs
         //  const stop_early_callbacks = auto_stop && tf.callbacks.earlyStopping();
         let data_loss;
@@ -384,13 +479,15 @@ const train_model = (model, datasets, options, success_callback, failure_callbac
         let last_epoch = 0;
         const stats_callback = 
             {onEpochEnd: async (epoch, history) => {
+//                 console.log(history, epoch);
                 epoch_history.push(history);
                 last_epoch = epoch;
                 data_loss = history.loss;
                 if (isNaN(data_loss)) {
                     throw new Error(not_a_number_error_message);
                 }
-                validation_loss = history.val_loss;
+                // if there is no validation data then use the training dataset loss instead
+                validation_loss = typeof history.val_loss === 'undefined' ? history.loss : history.val_loss;
                 data_accuracy = history.acc;
                 validation_accuracy = history.val_acc;
                 if (typeof lowest_data_loss === 'undefined' || data_loss < lowest_data_loss) {
@@ -406,7 +503,8 @@ const train_model = (model, datasets, options, success_callback, failure_callbac
                         update_weights = true;
                     }
                 }
-                if (validation_accuracy && (typeof highest_accuracy === 'undefined' || validation_accuracy > highest_accuracy)) {
+                if (typeof validation_accuracy === 'number' && 
+                    (typeof highest_accuracy === 'undefined' || validation_accuracy > highest_accuracy)) {
                     highest_accuracy = validation_accuracy;
                     highest_accuracy_epoch = epoch;
                     if (highest_accuracy_epoch) {
@@ -439,16 +537,25 @@ const train_model = (model, datasets, options, success_callback, failure_callbac
                     abort("User stopped hyperparameter search at epoch " + epoch);
                 }
             }};
-      const {xs, ys, xs_validation, ys_validation, xs_test, ys_test} = datasets;
+      const {xs, ys, xs_validation, ys_validation, xs_test, ys_test,
+             xs_array, ys_array, xs_validation_array, ys_validation_array, xs_test_array, ys_test_array} = datasets;
       const configuration = {batchSize: batch_size,
                              epochs,
+                             initialEpoch,
                              validationData: xs_validation && [xs_validation, ys_validation],
                              validationSplit: validation_split,
                              shuffle,
                              callbacks: stats_callback};
       const after_fit_callback = (full_history) => {
+//           console.log(tf.memory());
 //           console.log(full_history);
-          const {xs, ys, xs_validation, ys_validation, xs_test, ys_test} = datasets;
+          const {xs, ys, xs_validation, ys_validation, 
+                 xs_array, ys_array, xs_validation_array, ys_validation_array, xs_test_array, ys_test_array,
+                 test_and_validation_identical} 
+                 = datasets;
+          let xs_test = datasets.xs_test; // not a constant - need to update below in some circumstances
+          let ys_test = datasets.ys_test;
+          model.ready_for_training = true; // if there is further training
           model.ready_for_prediction = true;
           const number_of_tests = xs_test && xs_test.shape[0];
           const percentage_of_tests = (x) => +(100*x/number_of_tests).toFixed(2);
@@ -456,26 +563,36 @@ const train_model = (model, datasets, options, success_callback, failure_callbac
               show_layers(model, 'Model after training');
           }
           let confusion_matrix, test_loss, test_accuracy, number_of_classes;
-          if (xs_test && class_names) {
+          // following enables confusion matrices for fine-tuning but cause out of memory problems
+//           if (class_names && use_tf_datasets) {
+//              if (test_and_validation_identical) {
+//                   xs_test = tf.tensor(xs_validation_array);
+//                   ys_test = tf.tensor(ys_validation_array);
+//               } else if (xs_test_array) {
+//                   xs_test = tf.tensor(xs_test_array);
+//                   ys_test = tf.tensor(ys_test_array);
+//               }
+//           }
+          if (compute_confusion_matrices && xs_test && class_names) {
               const test_loss_tensor = model.evaluate(xs_test, ys_test);
               test_loss = test_loss_tensor[0].dataSync()[0];
               test_accuracy = test_loss_tensor[1].dataSync()[0];
+              tf.dispose(test_loss_tensor); // both of them
               const predictions = model.predict(xs_test, ys_test);
               number_of_classes = class_names && class_names.length;
               confusion_matrix = class_names && 
                                  compute_confusion_matrix(predictions.dataSync(), ys_test.dataSync(), number_of_classes);
               predictions.dispose();
-              tf.dispose(test_loss_tensor); // both of them 
               if (create_tensors) {
                   xs_test.dispose();
                   ys_test.dispose();
               }
           }
-          if (create_tensors) {
+          if (create_tensors && !use_tf_datasets) {
               xs.dispose();
               ys.dispose();
           }
-          if (create_tensors && xs_validation) {
+          if (create_tensors && xs_validation && !use_tf_datasets) {
               xs_validation.dispose();
               ys_validation.dispose();
           }
@@ -539,13 +656,16 @@ const train_model = (model, datasets, options, success_callback, failure_callbac
           csv_values += (data_accuracy && data_accuracy.toFixed(4)) + ", ";
           csv_values += (validation_accuracy && validation_accuracy.toFixed(4)) + ", ";
           csv_values += (test_accuracy && test_accuracy.toFixed(4)) + ", ";
-          if (!xs_validation) {
+          const x_length = xs ? xs.shape[0] : xs_array.length;
+          const x_validation_length = xs_validation ? xs_validation.shape[0] : (xs_validation_array ? xs_validation_array.length : 0);
+          const x_test_length = xs_test ? xs_test.shape[0] : (xs_test_array ? xs_test_array.length : 0);
+          if (!x_validation_length) {
               // what about validation_split????
-              csv_values += xs.shape[0] + ", ";
-          } else if (!xs_test || datasets.test_and_validation_identical) {
-              csv_values += xs.shape[0] + xs_validation.shape[0] + ", ";
+              csv_values += x_length + ", ";
+          } else if (!x_test_length || datasets.test_and_validation_identical) {
+              csv_values += x_length + x_validation_length + ", ";
           } else {
-              csv_values += xs.shape[0] + xs_validation.shape[0] + xs_test.shape[0] + ", ";
+              csv_values += x_length + x_validation_length + x_test_length + ", ";
           }
           csv_values += (lowest_validation_loss && lowest_validation_loss.toFixed(4)) + ", ";
           csv_values += (lowest_validation_loss_epoch && lowest_validation_loss_epoch) + ", ";
@@ -596,8 +716,13 @@ const train_model = (model, datasets, options, success_callback, failure_callbac
        };
        record_callbacks(after_fit_callback);
        const start = Date.now();
-       model.fit(datasets.xs, datasets.ys, configuration)
-           .then((full_history) => invoke_callback(after_fit_callback, full_history), fit_error_handler);
+       const then = (full_history) => invoke_callback(after_fit_callback, full_history);
+       if (datasets.use_tf_datasets) {
+           configuration.validationData = datasets.validation;
+           model.fitDataset(datasets.train, configuration).then(then, fit_error_handler);
+       } else {
+           model.fit(datasets.xs, datasets.ys, configuration).then(then, fit_error_handler);
+       }           
      } catch(error) {
          if (failure_callback) {
              invoke_callback(failure_callback, error);
@@ -607,7 +732,38 @@ const train_model = (model, datasets, options, success_callback, failure_callbac
      } 
 };
 
-let last_prediction;
+const reload_datasets_button = document.createElement('button');
+
+const load_slice = (options, callback) => {
+    const datasets = options.datasets;
+    tf.dispose(datasets.xs);
+    tf.dispose(datasets.ys);
+    tf.dispose(datasets.xs_validation);
+    tf.dispose(datasets.ys_validation);
+    tf.dispose(datasets.xs_test);
+    tf.dispose(datasets.ys_test);
+    options.datasets = undefined; 
+    reload_datasets_button.innerHTML = "Loading slice #" + options.slice_number;
+    options.replace_datasets(options,
+                             () => {
+                                 options.datasets = collect_datasets(options);
+                                 split_data(model_options.datasets, options, 1); // 1 because already cut out fraction_kept
+                                 reload_datasets_button.innerHTML = reload_datasets_label;
+                                 if (callback) {
+                                     callback();
+                                 }
+                             });
+};
+
+const redo_training = (model, options, callback, failure_callback) => {
+    options.initialEpoch = options.number_of_training_epochs + (options.initialEpoch || 0);
+    options.epochs = options.initialEpoch + options.number_of_training_epochs; // epochs is really the stop epoch
+    train_model(model, options.datasets, options,
+                (results) => {
+                    options.success_callback(results, callback);
+                },
+                failure_callback);
+};
 
 const predict = (model, inputs, success_callback, error_callback, categories) => {
     if (!model) {
@@ -631,7 +787,6 @@ const predict = (model, inputs, success_callback, error_callback, categories) =>
         record_callbacks(model.callback_when_ready_for_prediction);
         return;
     }
-    last_prediction = JSON.stringify(inputs);
     try {
         let input_tensor;
         if (typeof inputs[0] === 'number') {
@@ -653,8 +808,23 @@ const predict = (model, inputs, success_callback, error_callback, categories) =>
             invoke_callback(success_callback, results);
         }
     } catch (error) {
-        invoke_callback(error_callback, error.message);
+        invoke_callback(error_callback, enhance_error_message(error.message));
     }
+};
+
+const enhance_error_message = (error_message) => {
+    const expected_shape_error_fragment = 'to have shape [null,';
+    const expected_shape_error_index = error_message.indexOf(expected_shape_error_fragment);
+    let explanation = '';
+    if (expected_shape_error_index > 0) {
+        const opening_bracket_index = error_message.indexOf('[', expected_shape_error_index);
+        const closing_bracket_index = error_message.indexOf(']', opening_bracket_index);
+        explanation = ' What is meant by ' + 
+                      error_message.substring(opening_bracket_index, closing_bracket_index+1) +
+                      ' is that the system expected a LIST of values with the shape [' +
+                      error_message.substring(opening_bracket_index+'[null,'.length, closing_bracket_index+1);
+    }
+    return error_message + explanation;
 };
 
 const categorical_results = (results, categories) => 
@@ -676,6 +846,13 @@ const shape_of_data = (data) => {
    }
 };
 
+const loss_measure = (results) =>
+    results["Highest accuracy"] && -results["Highest accuracy"] || // minimize negative accuracy
+    results['Lowest validation loss'] || 
+    results['Validation loss'] || 
+    results['Lowest training loss'] || 
+    results['Training loss'];
+
 const hyperparameter_search = (options, datasets, success_callback, error_callback) => {
     let experiment_number = 0;
     let previous_model;
@@ -684,25 +861,20 @@ const hyperparameter_search = (options, datasets, success_callback, error_callba
     options.datasets = datasets; // in case needed to compute input_shape
     if (!!datasets.xs_array) {
         // datasets are JavaScript arrays (prior to possible splitting) so compute tensor version
-        update_tensors(datasets);
+        update_tensors(datasets, options.batch_size);
     }
     const create_and_train = async (search_options) => {
-        console.log(search_options);
         const new_options = Object.assign({}, options, search_options);
         set_random_number_seed(new_options);
-        const model = create_model(new_options);
+        let model = create_model(new_options);
         return new Promise((resolve) => {
             train_model(model,
                         datasets,
                         new_options,
-                        (results) => {
+                        (results, callback) => {
                             experiment_number++;
                             previous_model = model;
-                            let loss = results["Highest accuracy"] && -results["Highest accuracy"] || // minimize negative accuracy
-                                       results['Lowest validation loss'] || 
-                                       results['Validation loss'] || 
-                                       results['Lowest training loss'] || 
-                                       results['Training loss'];
+                            let loss = loss_measure(results);
                             if (isNaN(loss)) {
                                 loss = Number.MAX_VALUE;
                             }
@@ -718,6 +890,9 @@ const hyperparameter_search = (options, datasets, success_callback, error_callba
                                      results,
                                      best_model,
                                      status: hpjs.STATUS_OK});
+                            if (callback) {
+                                callback();
+                            }
                         },
                         (error) => {
                             if (error.message !== not_a_number_error_message) {

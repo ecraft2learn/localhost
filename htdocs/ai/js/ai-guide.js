@@ -158,32 +158,35 @@ window.addEventListener(
              var new_hash   = hash_start >= 0 && href.substring(hash_start);
              var url = href;
              if (search_start >= 0) {
-                url = href.substring(0, search_start);
+                 url = href.substring(0, search_start);
              }
              if (hash_start >= 0) {
-                url = url.substring(0, hash_start);
+                 url = url.substring(0, hash_start);
              }
              if (new_search) {
-                if (search) {
-                    new_search += "&" + search.substring(1);
-                }
+                 if (search) {
+                     new_search += "&" + search.substring(1);
+                 }
              } else {
-                new_search = search;
+                 new_search = search;
              }
-             if (new_hash) {
-                if (hash) {
-                    new_hash += "&" + hash.substring(1);
-                }
-             } else {
-                new_hash = hash;
+             if (window.location.hash.indexOf('#&') === 0 && href.indexOf('#') < 0) {
+                 // combine hashes if current URL is #& and href doesn't not have a hash
+                 if (new_hash) {
+                     if (hash) {
+                         new_hash += "&" + hash.substring(1);
+                     }
+                     if (new_hash.indexOf(window.location.hash.substring(1)) < 0) {
+                         new_hash += window.location.hash;
+                     }
+                 } else {
+                     new_hash = hash;
+                 }
              }
              if (new_search.indexOf(window.location.search.substring(1)) < 0) { // substring(1) to ignore the #
                  new_search += window.location.search;    
              }
-             if (new_hash.indexOf(window.location.hash.substring(1)) < 0) {
-                new_hash += window.location.hash;
-             }
-             element.setAttribute('href', url + new_search + new_hash);
+             element.setAttribute('href', url + (new_search || "") + (new_hash || ""));
          };
          Array.prototype.forEach.call(elements, add_search_and_hash);
          Array.prototype.forEach.call(document.getElementsByTagName('a'), add_search_and_hash);

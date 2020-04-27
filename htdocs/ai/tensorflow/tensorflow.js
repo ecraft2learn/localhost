@@ -46,17 +46,18 @@ const set_data = (model_name, kind, value, callback) => {
     }
     if (value.hasOwnProperty('output')) {
         if (value.output.length > 0 && isNaN(+value.output[0])) {
+            // values might be strings that represent numbers - only non-numeric strings can be category labels
             let labels;
-            [value.output, labels] = to_one_hot(value.output);
+            [value.output, labels] = to_one_hot(value.output, data[model_name].categories);
             data[model_name].categories = labels;
             if (model_name === 'all models') {
-               // recreate all models with for example softmax and one-hot created before this data was available
-               Object.keys(data).forEach((name) => {
-                   if (data[name].hasOwnProperty('recreate')) {
-                       data[name]['recreate'](callback);
-                       callback = undefined;
-                   }
-               })
+                // recreate all models with for example softmax and one-hot created before this data was available
+                Object.keys(data).forEach((name) => {
+                    if (data[name].hasOwnProperty('recreate')) {
+                        data[name]['recreate'](callback);
+                        callback = undefined;
+                    }
+                });
             } else if (data[model_name].hasOwnProperty('recreate')) {
                 data[model_name]['recreate'](callback);
                 callback = undefined;               
@@ -76,12 +77,13 @@ const set_data = (model_name, kind, value, callback) => {
     }
     invoke_callback(callback);
 };
-const to_one_hot = (labels) => {
-    const unique_labels = [];
+
+const to_one_hot = (labels, current_labels) => {
+    const unique_labels = current_labels || [];
     labels.forEach((label) => {
-      if (unique_labels.indexOf(label) < 0) {
-          unique_labels.push(label);
-      }
+        if (unique_labels.indexOf(label) < 0) {
+            unique_labels.push(label);
+        }
     });
     const one_hot = (index, n) => {
         let vector = [];
@@ -124,7 +126,7 @@ const non_categorical_loss_functions =
 const categorical_loss_functions =
     {//"Sigmoid Cross Entropy": "sigmoidCrossEntropy", - requires more arguments - could supply them
     // and what about tf.metrics.binaryCrossentropy
-     "Softmax Cross Entropy": "softmaxCrossEntropy"};
+     "Softmax Cross Entropy": "categoricalCrossentropy"};
 
 const loss_functions = (categories) => categories ? categorical_loss_functions : non_categorical_loss_functions;
 
@@ -467,7 +469,7 @@ const normalize = (tensor) => {
 //     return message_to_user;
 // };
 
-const default_loss_function = (categories) => categories ? 'softmaxCrossEntropy' : 'meanSquaredError';
+const default_loss_function = (categories) => categories ? 'categoricalCrossentropy' : 'meanSquaredError';
 
 const get_tensors = (model_name, kind) => {
     let data = get_data(model_name, kind);
@@ -490,6 +492,10 @@ const get_tensors = (model_name, kind) => {
 
 let optimize_hyperparameters_messages; // only need one even if called multiple times
 let lowest_loss;
+let highest_accuracy;
+let highest_score;
+let metrics_of_highest_score;
+let is_best_so_far;
 let best_model;
 let stop_on_next_experiment = false;
 let hyperparameter_searching = false;
@@ -497,7 +503,7 @@ const optimize_hyperparameters_button = document.createElement('button');
 const search_button_label = "Search for good parameters using current settings";
 const stop_button_label = "Stop when next current experiment finishes";
 
-const create_hyperparamter_optimization_tab = (model) => {
+const create_hyperparameter_optimization_tab = (model, add_messages_now) => {
     const surface = tfvis.visor().surface({name: 'Tensorflow', tab: 'Optimize'});
     const draw_area = surface.drawArea;
     if (optimize_hyperparameters_messages) {
@@ -505,6 +511,9 @@ const create_hyperparamter_optimization_tab = (model) => {
         return; // already set up 
     }
     optimize_hyperparameters_messages = document.createElement('p');
+    if (add_messages_now) {
+        draw_area.appendChild(optimize_hyperparameters_messages);
+    }
     optimize_hyperparameters_button.innerHTML = search_button_label;
     optimize_hyperparameters_button.className = "support-window-button";
     optimize_hyperparameters_button.addEventListener('click', 
@@ -521,44 +530,122 @@ const create_hyperparamter_optimization_tab = (model) => {
     parameters_interface(create_parameters_interface).optimize.open();
 };
 
+const search_descriptions = 
+    ["Search for best Optimization method",
+     "Search for best loss function",
+     "Search for best activation function",
+     "Search for best shuffle data setting",
+     "Search for best number of training iterations",
+     "Search for best validation split",
+     "Search for best dropout rate",
+     "Search for best number of layers"];
+
+const weight_descriptions =
+    ["How much the loss detracts from the score",
+     "How much the accuracy contributes to the score",
+     "How much training time detracts from the score",
+     "How much the size of model detracts from the score",
+     "How much the variance of the score detracts from the score"];
+
+const display_trial = (parameters, element) => {
+    if (parameters.layers) {
+        element.innerHTML += "Layers = " + parameters.layers + "<br>";
+    }
+    if (parameters.epochs) {
+        element.innerHTML += "Number of training iterations = " + parameters.epochs + "<br>";
+    }
+    if (parameters.learning_rate) {
+        element.innerHTML += "Learning rate = " + parameters.learning_rate.toFixed(5) + "<br>";
+    }
+    if (typeof parameters.dropout_rate !== 'undefined') {
+        element.innerHTML += "Dropout rate = " + parameters.dropout_rate.toFixed(3) + "<br>";
+    }
+    if (parameters.optimization_method) {
+        element.innerHTML += "Optimization method = " + inverse_lookup(parameters.optimization_method, optimization_methods) + "<br>";
+    }
+    if (parameters.activation) {
+        element.innerHTML += "Activation function = " + parameters.activation + "<br>";
+    }
+    if (parameters.loss_function) {
+        element.innerHTML += "Loss function = " + 
+                             inverse_lookup(parameters.loss_function,
+                                            loss_functions(get_data(parameters.model_name, 'categories'))) + "<br>";
+    }
+    if (typeof parameters.validation_split !== 'undefined') {
+        element.innerHTML += "Validation split = " + parameters.validation_split.toFixed(3) + "<br>";
+    }
+    if (typeof parameters.shuffle !== 'undefined') {
+        element.innerHTML += "Shuffle data = " + parameters.shuffle + "<br>";
+    }
+};
+
+const shorter_number = (number) => {
+    if (typeof number === 'number') {
+        return number.toFixed(4);
+    }
+    return number;
+};
+
+const display_trial_results = (trial) => {
+    const score = -trial.result.loss;
+    if (trial.result.loss === Number.MAX_VALUE) {
+        optimize_hyperparameters_messages.innerHTML += 
+            "Training failed and reported a loss that is not a number.<br></b>";
+        return;
+    }
+    const results = trial.result.results;
+    const loss = metrics_of_highest_score.average_loss;;
+    const accuracy = metrics_of_highest_score.average_accuracy;
+    let message = "";
+    const best_score = score >= highest_score;
+    const best_loss = loss <= lowest_loss;
+    const best_accuracy = accuracy >= highest_accuracy;
+    if (best_score) {
+        highest_score = score;
+    }
+    if (best_loss) {
+        lowest_loss = loss;
+    }
+    if (best_accuracy) {
+        highest_accuracy = accuracy;
+    }
+    if (best_score) {
+        message = "<b>Best so far.<br>";
+    }
+    message += "Score = " + shorter_number(score);
+    if (results.samples && results.samples.length > 1) {
+        message += " (" + shorter_number(metrics_of_highest_score.score_standard_deviation) + " s.d.)";
+    }
+    const add_samples = (kind) => {
+        if (results.samples && results.samples.length > 1) {
+            message += "<br>(";
+            results.samples.forEach((sample) => {
+                message += shorter_number(sample[kind]) + ", ";
+            });
+            message += ")";
+        }
+    };        
+    add_samples('score');
+    message += "<br>Loss = " + loss; // toFixed may end up displaying 0 if small enough
+    add_samples('loss');
+    if (accuracy) {
+        message += "<br>Accuracy = " + shorter_number(accuracy);
+        add_samples('accuracy');
+    }
+    if (best_score) {
+        message += "</b>";
+    }
+    optimize_hyperparameters_messages.innerHTML += message + "</b>";
+};
+
 const optimize_hyperparameters_with_parameters = (draw_area, model) => {
     draw_area.appendChild(optimize_hyperparameters_messages);
-    lowest_loss = Number.MAX_VALUE;
     const name_element = document.getElementById('name_element');
     const model_name = name_element ? name_element.value : model ? model.name : 'my-model';
     const categories = get_data(model_name, 'categories');
     const [xs, ys] = get_tensors(model_name, 'training');
     let validation_tensors = get_tensors(model_name, 'validation'); // undefined if no validation data
     let epochs = gui_state["Training"]["Number of iterations"];
-    const display_trial = (parameters, element) => {
-        if (parameters.layers) {
-            element.innerHTML += "Layers = " + parameters.layers + "<br>";
-        }
-        if (parameters.epochs) {
-            element.innerHTML += "Number of training iterations = " + parameters.epochs + "<br>";
-        }
-        if (parameters.learning_rate) {
-            element.innerHTML += "Learning rate = " + parameters.learning_rate.toFixed(5) + "<br>";
-        }
-        if (typeof parameters.dropout_rate !== 'undefined') {
-            element.innerHTML += "Dropout rate = " + parameters.dropout_rate.toFixed(3) + "<br>";
-        }
-        if (parameters.optimization_method) {
-            element.innerHTML += "Optimization method = " + inverse_lookup(parameters.optimization_method, optimization_methods) + "<br>";
-        }
-        if (parameters.activation) {
-            element.innerHTML += "Activation function = " + parameters.activation + "<br>";
-        }
-        if (parameters.loss_function) {
-            element.innerHTML += "Loss function = " + inverse_lookup(parameters.loss_function, loss_functions(categories)) + "<br>";
-        }
-        if (typeof parameters.validation_split !== 'undefined') {
-            element.innerHTML += "Validation split = " + parameters.validation_split.toFixed(3) + "<br>";
-        }
-        if (typeof parameters.shuffle !== 'undefined') {
-            element.innerHTML += "Shuffle data = " + parameters.shuffle + "<br>";
-        }
-    };
     let onExperimentBegin = (i, trial) => {
         if (stop_on_next_experiment) {
             stop_on_next_experiment = false;
@@ -569,19 +656,9 @@ const optimize_hyperparameters_with_parameters = (draw_area, model) => {
         optimize_hyperparameters_messages.innerHTML += "<br><br>Experiment " + (i+1) + ":<br>";
         display_trial(trial.args, optimize_hyperparameters_messages);
     };
-    let onExperimentEnd = (i, trial) => {
-        const loss = trial.result.loss;
-        if (loss === Number.MAX_VALUE) {
-            optimize_hyperparameters_messages.innerHTML += "Training failed and reported a loss that is not a number.<br>";
-        } else if (loss <= lowest_loss) {
-            // tried toFixed(...) but error can be 1e-12 and shows up as just zeroes
-            optimize_hyperparameters_messages.innerHTML += "<b>Best loss so far = " + loss + "</b>";
-            lowest_loss = loss;
-        } else {
-            optimize_hyperparameters_messages.innerHTML += "Loss = " + loss + "<br>";
-        }                            
+    const onExperimentEnd = (i, trial) => {
+        display_trial_results(trial);
     };
-//     optimize_hyperparameters_messages.innerHTML = "<b>Searching for good parameter values. Please wait.</b>";
     const error_handler = (error) => {
         optimize_hyperparameters_messages.innerHTML = "Sorry but an error occured.<br>" + error.message;
         draw_area.appendChild(optimize_hyperparameters_messages);
@@ -590,7 +667,12 @@ const optimize_hyperparameters_with_parameters = (draw_area, model) => {
         stop_on_next_experiment = false;
     };
     const number_of_experiments = Math.round(gui_state["Optimize"]["Number of experiments"]);
-    optimize(model_name, xs, ys, validation_tensors, number_of_experiments, epochs, onExperimentBegin, onExperimentEnd, error_handler)
+    const number_of_samples = Math.round(gui_state["Optimize"]["Number of samples"]);
+    const what_to_optimize = search_descriptions.map(description => gui_state["Optimize"][description]);
+    const scoring_weights = weight_descriptions.map(description => gui_state["Optimize"][description]);
+    optimize(model_name, xs, ys, validation_tensors, number_of_experiments, epochs, 
+             onExperimentBegin, onExperimentEnd, error_handler, 
+             what_to_optimize, scoring_weights, number_of_samples)
         .then((result) => {
             if (!result) {
                 // error has been handled
@@ -606,12 +688,21 @@ const optimize_hyperparameters_with_parameters = (draw_area, model) => {
                 install_settings_button.className = "support-window-button";
                 draw_area.appendChild(install_settings_button);
                 const model_name = best_model.name;
-                install_settings_button.innerHTML = "Click to set '" + model_name + "' to best one found (loss = " + lowest_loss + ")<br>";
+                const average_text = number_of_samples > 1 ? 'Average ' : '';
+                install_settings_button.innerHTML = 
+                    "Click to set '" + model_name + "' to best one found (" +
+                    average_text + "Loss = " + 
+                    shorter_number(metrics_of_highest_score.average_loss) +
+                    (typeof metrics_of_highest_score.average_accuracy === 'undefined' ? 
+                        "" : "; " + average_text + "Accuracy = " + 
+                    shorter_number(metrics_of_highest_score.average_accuracy)) + 
+                    ")<br>";
                 display_trial(result.argmin, install_settings_button);
                 const settings = result.argmin;
                 settings.model_name = model_name;
                 install_settings_button.addEventListener('click',
                                                          () => {
+                                                             console.log("Installed", install_settings_button.innerHTML)
                                                              model = best_model;
                                                              add_to_models(model);
                                                              show_layers(model, 'Model after creation');
@@ -664,11 +755,18 @@ const install_settings = (parameters) => {
     if (typeof parameters.shuffle === 'boolean') {
         gui_state["Training"]["Shuffle data"] = parameters.shuffle;
     }
+    update_gui();
+};
+
+const update_gui = () => {
     const gui = parameters_interface(create_parameters_interface);
     gui.model.__controllers.forEach((controller) => {
         controller.updateDisplay();
     });
     gui.training.__controllers.forEach((controller) => {
+        controller.updateDisplay();
+    });
+    gui.optimize.__controllers.forEach((controller) => {
         controller.updateDisplay();
     });
 };
@@ -689,17 +787,38 @@ const inverse_lookup = (value, table) => {
 let previous_model;
 
 const optimize_hyperparameters = (model_name, number_of_experiments, epochs,
-                                  experiment_end_callback, success_callback, error_callback) => {
+                                  experiment_end_callback, success_callback, error_callback,
+                                  what_to_optimize,
+                                  scoring_weights,
+                                  number_of_samples) => {
    // this is meant to be called when messages are received from a client page (e.g. Snap!)
    record_callbacks(success_callback, error_callback);
+   create_hyperparameter_optimization_tab(model, true);
+   const experiment_begin_callback = (i, trial) => {
+        optimize_hyperparameters_messages.innerHTML += "<br><br>Experiment " + (i+1) + ":<br>";
+        display_trial(trial.args, optimize_hyperparameters_messages);
+   };
+   const new_experiment_end_callback = (i, trial) => {
+       display_trial_results(trial);
+       if (experiment_end_callback) {
+           experiment_end_callback(i, trial);
+       }
+   }
+   gui_state["Training"]["Number of iterations"] = epochs;
    try {   
        const [xs, ys] = get_tensors(model_name, 'training');
        const validation_tensors = get_tensors(model_name, 'validation'); // undefined if no validation data
            optimize(model_name, xs, ys, validation_tensors, number_of_experiments, epochs, 
-                    undefined, experiment_end_callback, error_callback)
+                    experiment_begin_callback, new_experiment_end_callback, error_callback, 
+                    what_to_optimize,
+                    scoring_weights,
+                    number_of_samples)
               .then((result) => {
+                  if (result) {
+                      result.best_model = best_model || previous_model; // if no best model then previous had NaN loss
+                  }
                   invoke_callback(success_callback, result);
-                  if (previous_model && !previous_model.disposed && previous_model !== best_model) {
+                  if (previous_model && !previous_model.disposed && best_model && previous_model !== best_model) {
                       previous_model.dispose();
                       previous_model.disposed = true;
                       previous_model = undefined;
@@ -715,7 +834,7 @@ const optimize_hyperparameters = (model_name, number_of_experiments, epochs,
                error_message = "No training data sent to the model named '" + model_name + "'";
            } else {
                error_message = error.message;
-               console.log(tf.memory()); // in case is a GPU memory problem good know this
+               console.log(tf.memory()); // in case is a GPU memory problem good to know this
            }
            invoke_callback(error_callback, new Error(error_message));
        } else {
@@ -725,8 +844,26 @@ const optimize_hyperparameters = (model_name, number_of_experiments, epochs,
    }
 };
 
-const optimize = async (model_name, xs, ys, validation_tensors, number_of_experiments, epochs,
-                        onExperimentBegin, onExperimentEnd, error_callback) => {
+const standard_deviation = (list) => {
+    let average = 0;
+    list.forEach(element => {
+        average += element/list.length;
+    });
+    let variance = 0;
+    list.forEach(element => {
+        variance += (element-average)**2;
+    });
+    return Math.sqrt(variance);
+};
+
+const optimize = async (model_name, xs, ys, validation_tensors, 
+                        number_of_experiments, // number of different parameters settings to explore
+                        epochs,
+                        onExperimentBegin, onExperimentEnd, error_callback,
+                        what_to_optimize,
+                        scoring_weights,
+                        number_of_samples // how many times to repeat experiments on the same parameters
+                        ) => {
     const create_and_train_model = async ({layers, optimization_method, loss_function, epochs, learning_rate,
                                            dropout_rate, validation_split, activation, shuffle}, 
                                           {xs, ys}) => {
@@ -737,10 +874,10 @@ const optimize = async (model_name, xs, ys, validation_tensors, number_of_experi
             layers = get_layers();
         }
         if (!optimization_method) {
-            optimization_method = gui_state["Model"]["Optimization method"];
+            optimization_method = optimizer_named(gui_state["Model"]["Optimization method"]);
         }
         if (!loss_function) {
-            loss_function = gui_state["Model"]["Loss function"];
+            loss_function = loss_function_named(gui_state["Model"]["Loss function"]);
         }
         if (!activation) {
             activation = gui_state["Model"]["Activation function"]
@@ -755,7 +892,7 @@ const optimize = async (model_name, xs, ys, validation_tensors, number_of_experi
             dropout_rate = gui_state["Model"]["Dropout rate"];
         }
         if (typeof validation_split === 'undefined') {
-            validation_split = gui_state["Model"]["Validation split"];
+            validation_split = gui_state["Training"]["Validation split"];
         }
         if (typeof shuffle !== 'boolean') {
             shuffle = to_boolean(gui_state["Training"]["Shuffle data"]);
@@ -766,16 +903,89 @@ const optimize = async (model_name, xs, ys, validation_tensors, number_of_experi
                                  xs_validation: validation_tensors && validation_tensors[0],
                                  ys_validation: validation_tensors && validation_tensors[1],
                                 };
-        const model = create_model({model_name,
-                                    tensor_datasets,
-                                    input_shape,
-                                    hidden_layer_sizes: layers,
-                                    optimizer: optimization_method,
-                                    loss_function,
-                                    activation,
-                                    dropout_rate,
-                                    learning_rate});
-        return new Promise((resolve) => {
+        const make_model = () => {
+            return create_model({model_name,
+                                 tensor_datasets,
+                                 input_shape,
+                                 hidden_layer_sizes: layers,
+                                 optimizer: optimization_method,
+                                 loss_function,
+                                 activation,
+                                 dropout_rate,
+                                 learning_rate});            
+        };
+        let model = make_model();
+        let samples_remaining = number_of_samples;
+        let samples = [];
+        const sample_results = 
+            async (results, resolve) => {
+                previous_model = model;
+                let loss = results["Lowest validation loss"];
+                if (isNaN(loss)) {
+                    loss = Number.MAX_VALUE;
+                }
+                const accuracy = results["Highest accuracy"];
+                const duration = results["Duration in seconds"];
+                const size = model.countParams();
+                let score;
+                if (scoring_weights) {
+                    score = compute_score(cannonicalise_weights(scoring_weights), loss, accuracy, duration, size);
+                } else if (accuracy) {
+                    score = accuracy;
+                } else {
+                    score = -loss;
+                }
+                samples.push({score, loss, accuracy, duration, size});
+                next_sample(resolve);
+        };
+        const next_sample = (resolve) => {
+            samples_remaining--;
+            model = make_model(); // recreate model
+            train(resolve);
+        };
+        const final_results = 
+            async (results, resolve) => {
+                results.samples = samples;
+                let average_score = 0;
+                let average_loss = 0;
+                let average_accuracy = 0;
+                let average_duration = 0;
+                let average_size = 0;
+                samples.forEach(({score, loss, accuracy, duration, size}) => {
+                    average_score += score/samples.length;
+                    average_loss += loss/samples.length;
+                    average_accuracy += accuracy/samples.length;
+                    average_duration += duration/samples.length;
+                    average_size += size/samples.length;
+                });
+                const score_standard_deviation = standard_deviation(samples.map(({score}) => score));
+                // penalize high variance to mimimize relying upon luck
+                if (scoring_weights) {
+                    const score_change = score_standard_deviation*scoring_weights[4]
+                    average_score -= score_change;
+                    samples.forEach(sample => {
+                        sample.score -= score_change;
+                    });
+                }
+                samples = [];
+                samples_remaining = number_of_samples;
+                is_best_so_far = average_score > highest_score || typeof highest_score === 'undefined';
+                if (is_best_so_far) {
+                    highest_score = average_score;
+                    metrics_of_highest_score =
+                        {average_loss, average_accuracy, average_duration, average_size, score_standard_deviation};
+                    if (best_model) {
+                        best_model.dispose();
+                        best_model.disposed = true;
+                    }
+                    best_model = model;
+                }
+                resolve({loss: -average_score,
+                         results,
+                         best_model,
+                         status: hpjs.STATUS_OK});
+        };
+        const train = (resolve) => {
             train_model(model,
                         tensor_datasets,
                         {epochs, 
@@ -783,29 +993,11 @@ const optimize = async (model_name, xs, ys, validation_tensors, number_of_experi
                          validation_split,
                          shuffle},
                         (results) => {
-//                             if (previous_model && !previous_model.disposed) {
-//                                 previous_model.dispose();
-//                                 previous_model.disposed = true;
-//                             }
-                            previous_model = model;
-//                             tf.disposeVariables();
-                            let loss = results['Lowest validation loss'] || results['Validation loss'] || 
-                                       results['Lowest training loss'] || results['Training loss'];
-                            if (isNaN(loss)) {
-                                loss = Number.MAX_VALUE;
+                            if (samples_remaining === 0) {
+                                final_results(results, resolve);
+                            } else {
+                                sample_results(results, resolve);
                             }
-                            if (loss < lowest_loss || typeof lowest_loss === 'undefined') {
-                                lowest_loss = loss;
-                                if (best_model) {
-                                    best_model.dispose();
-                                    best_model.disposed = true;
-                                }
-                                best_model = model;
-                            }
-                            resolve({loss,
-                                     results,
-                                     best_model,
-                                     status: hpjs.STATUS_OK});
                         },
                         (error) => {
                             if (error.message === not_a_number_error_message) {
@@ -815,12 +1007,32 @@ const optimize = async (model_name, xs, ys, validation_tensors, number_of_experi
                                 invoke_callback(error_callback, error);
                             }
                         });
-            });
+        };
+        return new Promise(train);
     };
     record_callbacks(create_and_train_model, error_callback);
+    optimize_hyperparameters_messages.innerHTML = ""; // starting anew
     best_model = undefined; // to be found
+    lowest_loss = Number.MAX_VALUE;
+    highest_accuracy = 0;
+    highest_score = -Number.MAX_VALUE;
+    metrics_of_highest_score = undefined;
+    is_best_so_far = false;
     const space = {};
     const categories = get_data(model_name, 'categories');
+    gui_state["Optimize"]["Number of experiments"] = number_of_experiments;
+    gui_state["Optimize"]["Number of samples"] = number_of_samples;
+    if (what_to_optimize) {
+        what_to_optimize.forEach((use, index) => {
+            gui_state["Optimize"][search_descriptions[index]] = use;
+        });
+    }
+    if (scoring_weights) {
+        scoring_weights.forEach((weight, index) => {
+            gui_state["Optimize"][weight_descriptions[index]] = weight;   
+        });
+    }
+    update_gui();
     if (to_boolean(gui_state["Optimize"]["Search for best Optimization method"])) {
         space.optimization_method = hpjs.choice(Object.values(optimization_methods));
     }
@@ -900,6 +1112,18 @@ const optimize = async (model_name, xs, ys, validation_tensors, number_of_experi
     }
 };
 
+const cannonicalise_weights = (weights) => {
+    const sum = weights.reduce((a, b) => a+b, 0);
+    return weights.map(x => x/sum);
+};
+
+const compute_score = (weights, loss, accuracy, duration, size) => {
+// console.log('score', -Math.log(loss)*weights[0]+10*(accuracy || 0)*weights[1]-Math.log(duration/100)*weights[2]-Math.log(size/1000)*weights[3],
+//             'loss', -Math.log(loss)*weights[0], 'accuracy', 10*(accuracy || 0)*weights[1],
+//             'duration', -Math.log(duration/100)*weights[2], 'size', -Math.log(size/1000)*weights[3]);
+    return -Math.log(loss)*weights[0]+10*(accuracy || 0)*weights[1]-Math.log(duration/100)*weights[2]-Math.log(size/1000)*weights[3];
+};
+
 let report_error = function (error) {
     console.log(error); // for now
 };
@@ -932,6 +1156,7 @@ const gui_state =
                 },
    "Predictions": {},
    "Optimize": {"Number of experiments": 10,
+                "Number of samples": 3,
                 "Search for best Optimization method": true,
                 "Search for best loss function": true,
                 "Search for best dropout rate": true,
@@ -940,7 +1165,13 @@ const gui_state =
                 "Search for best number of layers": true,
                 "Search for best learning rate": true,
                 "Search for best validation split": true,
-                "Search for best shuffle data setting": true}
+                "Search for best shuffle data setting": true,
+                "How much the loss detracts from the score": 10,
+                "How much the accuracy contributes to the score": 10,
+                "How much training time detracts from the score": 1,
+                "How much the size of model detracts from the score": 2,
+                "How much the variance of the score detracts from the score": 3,
+                }
 };
 
 const create_parameters_interface = function () {
@@ -990,6 +1221,7 @@ const create_training_parameters = (parameters_gui) => {
 const create_hyperparameter_optimize_parameters = (parameters_gui) => {
     const optimize = parameters_gui.addFolder("Optimize");
     optimize.add(gui_state["Optimize"], 'Number of experiments');
+    optimize.add(gui_state["Optimize"], 'Number of samples');
     optimize.add(gui_state["Optimize"], 'Search for best Optimization method', [true, false]);
     optimize.add(gui_state["Optimize"], 'Search for best loss function', [true, false]);
     optimize.add(gui_state["Optimize"], 'Search for best dropout rate', [true, false]);
@@ -999,6 +1231,11 @@ const create_hyperparameter_optimize_parameters = (parameters_gui) => {
     optimize.add(gui_state["Optimize"], 'Search for best learning rate', [true, false]);
     optimize.add(gui_state["Optimize"], 'Search for best validation split', [true, false]);
     optimize.add(gui_state["Optimize"], 'Search for best shuffle data setting', [true, false]);
+    optimize.add(gui_state["Optimize"], "How much the loss detracts from the score");
+    optimize.add(gui_state["Optimize"], "How much the accuracy contributes to the score");
+    optimize.add(gui_state["Optimize"], "How much training time detracts from the score");
+    optimize.add(gui_state["Optimize"], "How much the size of model detracts from the score");
+    optimize.add(gui_state["Optimize"], "How much the variance of the score detracts from the score");
     return optimize;
 };
 
@@ -1115,7 +1352,7 @@ const train_with_parameters = async function (surface_name) {
             message.innerHTML += "Training failed because some numbers became too large for the system. " +
                                  "This can be caused by many different things. " +
                                  "Try different optimization methods, loss functions, or convert the input data to numbers between -1 and 1. " +
-                                 "Often the problem is due to <a href='https://en.wikipedia.org/wiki/Vanishing_gradient_problem' target='_blank'>vanishing gradiants</a>.";
+                                 "Often the problem is due to <a href='https://en.wikipedia.org/wiki/Vanishing_gradient_problem' target='_blank'>vanishing gradients</a>.";
         } else {
             if (final_epoch < epochs-1) {
                 message.innerHTML += "<br>There was no progress for " + stop_if_no_progress_for_n_epochs + " cycles so training stopped.";
@@ -1137,9 +1374,9 @@ const train_with_parameters = async function (surface_name) {
             }
             if (validation_accuracy) {
                 message.innerHTML += "<br>Validation data accuracy is " + validation_accuracy.toFixed(3) + ".";
-                if (validation_accuracy !== lowest_validation_accuracy) {
-                    message.innerHTML += " The lowest validation accuracy was " + lowest_validation_accuracy.toFixed(3) +  "." +
-                                         " Using the trained model from cycle " + training_statistics["Lowest validation accuracy epoch"] +  ".";
+                if (validation_accuracy !== training_statistics["Highest validation accuracy"]) {
+                    message.innerHTML += " The highest validation accuracy was " + training_statistics["Highest accuracy"] +  "." +
+                                         " Using the trained model from cycle " + training_statistics["Highest accuracy epoch"] +  ".";
                 }
             }
         }
@@ -1246,30 +1483,30 @@ const create_prediction_interface = () => {
         tfvis.visor().setActiveTab('Prediction');
         return;
     }
-    const input_input = document.createElement('input');
-    input_input.type = 'text';
-    input_input.id = "prediction-input";
-    input_input.name = "prediction-input";
-    input_input.value = (last_prediction || 1);
+    const input_element = document.createElement('input');
+    input_element.type = 'text';
+    input_element.id = "prediction-input";
+    input_element.name = "prediction-input";
+    input_element.value = 1;
     const label = document.createElement('label');
-    label.for = "input_input";
+    label.for = "input_element";
     label.innerHTML = "Input for prediction: ";
     const div = document.createElement('div');
     div.appendChild(label);
-    div.appendChild(input_input);
+    div.appendChild(input_element);
     draw_area.appendChild(div);
     const make_prediction = (model_name) => {
         const success_callback = (results) => {
             const categories = get_data(model_name, 'categories');
             if (categories) {
                 results = JSON.stringify(results);
-            } else if (input_input.value.indexOf('[') < 0) {
+            } else if (input_element.value.indexOf('[') < 0) {
                 results = results[0]; // only one number in inputs so only one result
             } else {
                 results = "[" + results + "]";
             }
             const message = create_message_element("<br>The " + model_name + " model predicts " + results + 
-                                                   "<br>for input " + input_input.value + ".");
+                                                   "<br>for input " + input_element.value + ".");
             draw_area.appendChild(message);
         };
         const error_callback = (error_message) => {
@@ -1277,7 +1514,7 @@ const create_prediction_interface = () => {
         };
         record_callbacks(success_callback, error_callback);
         try {
-            let inputs = +input_input.value || JSON.parse(input_input.value);
+            let inputs = +input_element.value || JSON.parse(input_element.value);
             if (typeof inputs === 'number') {
                 inputs = [inputs];
             }
@@ -1286,7 +1523,7 @@ const create_prediction_interface = () => {
                     success_callback, error_callback,
                     get_data(model_name, 'categories'));
         } catch (error) {
-            invoke_callback(error_callback, error.message);
+            invoke_callback(error_callback, enhance_error_message(error.message));
         }
     };
     const choose_model_then_make_prediction = () => {
@@ -1525,7 +1762,7 @@ window.addEventListener('DOMContentLoaded',
                                                           });
                             optimize_hyperparameters_interface_button.addEventListener('click',
                                                           () => {
-                                                              create_hyperparamter_optimization_tab(model);
+                                                              create_hyperparameter_optimization_tab(model);
                                                           });
                             evaluate_button.addEventListener('click', create_prediction_interface);
                             save_and_load_model_button.addEventListener('click', save_and_load);             
@@ -1568,10 +1805,11 @@ const receive_message =
                     event.source.postMessage({data_received: message.time_stamp}, "*"); 
                 };
                 if (message.ignore_old_dataset) {
-                    set_data(model_name, kind, message.data, callback);
+                    set_data(model_name, kind, message.data);
                 } else {
-                    set_data(model_name, kind, add_to_data(message.data, model_name, kind, callback));
+                    set_data(model_name, kind, add_to_data(message.data, model_name, kind));
                 }
+                invoke_callback(callback);
             } catch (error) {
                 event.source.postMessage({data_message_failed: message.data,
                                           error_message: error.message}, "*");
@@ -1580,10 +1818,13 @@ const receive_message =
             try {
                 const options = message.create_model;
                 const model_name = message.create_model.model_name;
+                options.class_names = get_data(model_name, 'categories');
+                if (options.loss_function === true) {
+                    options.loss_function = default_loss_function(options.class_names);
+                }
                 options.loss_function = loss_function_named(options.loss_function);
                 options.optimizer = optimizer_named(options.optimizer);
-                options.datasets = get_data(model_name, 'datasets');
-                options.class_names = get_data(model_name, 'categories');
+                options.datasets = get_data(model_name, 'datasets');   
                 const model = create_model(options);
                 install_settings(options);
                 tensorflow.add_to_models(model);
@@ -1624,32 +1865,84 @@ const receive_message =
             record_callbacks(success_callback, error_callback);
             let model_name = message.train.model_name;
             install_settings(message.train);
+            const options = message.train;
+            if (get_data(model_name, 'categories')) {
+                options.tfvis_options.measure_accuracy = true;
+            }
             train_model(get_model(model_name),
                         get_data(model_name, 'datasets'),
-                        message.train,                         
+                        options,                         
                         success_callback,
                         error_callback);
         } else if (typeof message.predict !== 'undefined') {
+            let results = [];
+            const average_results = () => {
+                if (typeof results[0] === 'number') {
+                    let average = 0;
+                    results.forEach(result => {
+                        average += result/results.length;
+                    });
+                    return average;
+                }
+                if (categories) {
+                    return average_categorical_results();
+                }
+                const averages = results[0].map(() => 0);
+                results.forEach((result) => {
+                    result.forEach((prediction, index) => {
+                        averages[index] += prediction/results.length;
+                    });                        
+                });
+                return averages;     
+            }
+            const average_categorical_results = () => {
+                const keys = Object.keys(results[0][0]);
+                const sums = results[0].map(scoring => {
+                    const new_scoring = {};
+                    keys.map(key => {
+                        new_scoring[key] = 0;
+                    });
+                    return new_scoring;
+                });
+                results.forEach(result => {
+                    result.forEach((next_scoring, scoring_index) => {
+                        keys.forEach(key => {
+                            sums[scoring_index][key] += next_scoring[key]/results.length;
+                        });
+                    }) 
+                });
+                return sums;
+            };
             const success_callback = (result) => {
-                event.source.postMessage({prediction: message.predict.time_stamp,
-                                          result: result}, "*");
+                results.push(result);
+                if (results.length === model_names.length) {
+                    event.source.postMessage({prediction: message.predict.time_stamp,
+                                              result: average_results()}, "*");
+                }
             };
             const error_callback = (error_message) => {
                 event.source.postMessage({prediction_failed: message.predict.time_stamp, 
                                           error_message: error_message}, "*");
             };
             record_callbacks(success_callback, error_callback);
-            const model_name = message.predict.model_name;
-            const model = get_model(model_name);
-            if (!model) {
-                invoke_callback(error_callback, 
-                                "Prediction not possible since there is no model named '" + model_name + "'.");
-                return;
+            let model_names = message.predict.model_names;
+            if (typeof model_names === 'string') {
+                model_names = [model_names];
             }
-            predict(model, 
-                    message.predict.input,
-                    success_callback, error_callback,
-                    get_data(model_name, 'categories'));
+            const categories = message.predict.categories || get_data(model_names[0], 'categories');
+            model_names.forEach(model_name => {
+                const model = get_model(model_name);
+                if (!model) {
+                    invoke_callback(error_callback, 
+                                    "Prediction not possible since there is no model named '" + model_name + "'.");
+                    return;
+                }
+                predict(model, 
+                        message.predict.input,
+                        success_callback,
+                        error_callback,
+                        categories);
+            });
         } else if (typeof message.is_model_ready_for_prediction !== 'undefined') {
             let name = message.is_model_ready_for_prediction.model_name;
             let model = models[name];
@@ -1657,7 +1950,7 @@ const receive_message =
             if (model) {
                 ready = !!model.ready_for_prediction; 
             } else {
-                event.source.postMessage({error: "Unknown model '" + name + "' asked if ready for predictions."}, "*");
+//                 event.source.postMessage({error: "Unknown model '" + name + "' asked if ready for predictions."}, "*");
                 ready = false; // unknown model is not ready
             }
             event.source.postMessage({ready_for_prediction: ready,
@@ -1726,27 +2019,57 @@ const receive_message =
             const categories = get_data(model_name, 'categories');
             let time_stamp = message.time_stamp;
             const success_callback = (result) => {
+                if (!result) {
+                    error_callback(new Error("No results from search."));
+                    return;
+                }
                 const best_parameters = result.argmin;
                 best_parameters.input_shape = shape_of_data((get_data(model_name, 'training') || get_data(model_name, 'validation')).input[0]);
                 best_parameters.optimization_method = inverse_lookup(best_parameters.optimization_method, optimization_methods);
                 best_parameters.loss_function       = inverse_lookup(best_parameters.loss_function, loss_functions(categories));
                 // So validation data is used when creating and training the model with the best parameters.
                 best_parameters.used_validation_data = !!get_data(model_name, 'validation');
-                const model = get_model(model_name);
-                model.best_model = best_model;
+                if (lowest_loss > 0) {
+                    best_parameters.lowest_loss = lowest_loss;
+                }
+                if (highest_accuracy > 0) {
+                    best_parameters.highest_accuracy = highest_accuracy;
+                }
+                if (typeof highest_score ==='number') {
+                    best_parameters.highest_score = highest_score;
+                    best_parameters.metrics = metrics_of_highest_score;
+                }
+                const model = result.best_model;
+                add_to_models(model);
+                model.best_model = model;
                 model.best_parameters = best_parameters;
                 event.source.postMessage({optimize_hyperparameters_time_stamp: time_stamp,
                                           final_optimize_hyperparameters: best_parameters},
-                                          "*");
+                                         "*");
             };
             const experiment_end_callback = (n, trial) => {
                 let parameters = trial.args;
                 parameters.optimization_method = inverse_lookup(parameters.optimization_method, optimization_methods);
                 parameters.loss_function       = inverse_lookup(parameters.loss_function, loss_functions(categories));
+                parameters.is_best_so_far      = is_best_so_far;
+                // select just these entries from trial.result.results
+                const result_labels =
+                    ["Training loss", "Validation loss", "Test loss",
+                     "Training accuracy", "Validation accuracy", "Test accuracy",
+                     "Lowest validation loss", "Highest accuracy",
+                     "Last epoch",  "Duration in seconds",
+                     "Column labels for saving results in a spreadsheet",
+                     "Spreadsheet values"];
+                const results = {};
+                result_labels.forEach((label) => {
+                    results[label] = trial.result.results[label];
+                });
                 event.source.postMessage({optimize_hyperparameters_time_stamp: time_stamp,
                                           trial_number: n,
                                           trial_optimize_hyperparameters: parameters,
-                                          trial_loss: trial.result.loss},
+                                          trial_score: trial.result.loss,
+                                          results,
+                                          is_best_so_far},
                                           "*");
             }
             const error_callback = (error) => {
@@ -1758,12 +2081,16 @@ const receive_message =
             };
             record_callbacks(success_callback, error_callback, experiment_end_callback);
             optimize_hyperparameters(model_name, number_of_experiments, epochs,
-                                     experiment_end_callback, success_callback, error_callback);
+                                     experiment_end_callback, success_callback, error_callback,
+                                     message.what_to_optimize,
+                                     message.scoring_weights,
+                                     message.number_of_samples);
         } else if (typeof message.replace_with_best_model !== 'undefined') {
             const model_name = message.replace_with_best_model;
             replace_with_best_model(model_name,
-                                    () => {
-                                        event.source.postMessage({model_replaced: model_name});
+                                    (parameters) => {
+                                        event.source.postMessage({model_replaced: model_name,
+                                                                  parameters});
                                     },
                                     (error_message) => {
                                         event.source.postMessage({error_replacing_model: model_name,
@@ -1793,7 +2120,7 @@ const replace_with_best_model = (name_of_model_used_in_search, success_callback,
     install_settings(model.best_parameters);
     show_layers(model.best_model, 'Model found by parameter search');
     if (success_callback) {
-        invoke_callback(success_callback);
+        invoke_callback(success_callback, model.best_parameters);
     }
 };
 
@@ -1815,7 +2142,7 @@ return {get_model: get_model,
         create_training_parameters: create_training_parameters,
         create_hyperparameter_optimize_parameters: create_hyperparameter_optimize_parameters,
         train_with_parameters: train_with_parameters,
-        create_hyperparamter_optimization_tab: create_hyperparamter_optimization_tab,
+        create_hyperparameter_optimization_tab: create_hyperparameter_optimization_tab,
         save_and_load: save_and_load,
         create_button: create_button,
         replace_with_best_model: replace_with_best_model,

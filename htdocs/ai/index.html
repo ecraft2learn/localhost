@@ -24,6 +24,10 @@ into <a href="snap/snap.html" target="_blank">Snap!</a> or
 It is possible to <a href="./localhost.html">download the files</a> needed to run most of the blocks and projects
 described here without an Internet connection.
 </p>
+<p>
+Important updates are
+<a href="https://docs.google.com/document/d/1Vf7c9e4l4SECOXAelYcr02bH3qnoVeykN_TThbJXQAw/edit?usp=sharing" target="_blank">documented here</a>.
+</p>
 <ol>
 <li>
 Enabling your sprites to speak in over a hundred languages. 
@@ -85,7 +89,8 @@ and the larger context about AI and machine learning:
 <td>No special hardware requirements</td>
 </tr>
 <tr>
-<td><a class="guide-link" href="AI-Teacher-Guide/chapter-6.html"><b>Making machine learning neural nets</b> <span class='this-is-new'>New!</span></a></td>
+<td><a class="guide-link" href="AI-Teacher-Guide/chapter-6.html"><b>Making machine learning neural nets</b>
+</a></td>
 <td>It is very slow unless your device has a <a href="#gpu">GPU</a>.</td>
 </tr>
 </table>
@@ -116,14 +121,16 @@ The following demonstration programs use the AI Snap! blocks.
 They run best in the Chrome browser.
 </p>
 <div class="flow-row">
+<!-- Added &noRun to all projects that require speech output since must be triggered by a user action -->
 <figure>
 <img src="images/speak randomly.png">
-<figcaption><a href="snap/snap.html?project=speak%20randomly&noRun" target="_blank">
+<!-- doesn't need &noRun since must click or touch to activate -->
+<figcaption><a href="snap/snap.html?project=speak%20randomly" target="_blank">
 <b>Listen to generated speech with random pitch, rate, voice, and language</b></a><br><span class="requirements">(requires speaker/headphones)</span></figcaption>
 </figure>
 <figure>
 <img src="images/command broadcast 2.png">
-<figcaption><a href="snap/snap.html?project=command%20broadcast%202&noRun" target="_blank">
+<figcaption><a href="snap/snap.html?project=command%20broadcast%202" target="_blank">
 <b>Speak single word commands to a sprite (with synonym support)</b></a><br><span class="requirements">(requires microphone and speaker/headphones)</span></figcaption>
 </figure>
 <figure>
@@ -163,18 +170,18 @@ They run best in the Chrome browser.
 </figure>
 <figure>
 <img src="images/follow finger.png">
-<figcaption><a href="snap/snap.html?project=follow%20finger&noRun" target="_blank">
+<figcaption><a href="snap/snap.html?project=follow%20finger" target="_blank">
 <b>Train the turtle to move depending on which way your finger is pointed</b></a><br><span class="requirements">(requires webcam and <a href="#gpu">a GPU</a>)</span></figcaption>
 </figure>
 <figure>
-<img src="images/follow finger.png">
-<figcaption><a href="snap/snap.html?project=train%20and%20speak%20commands&noRun" target="_blank">
+<img src="images/train and speak commands.png">
+<figcaption><a href="snap/snap.html?project=train%20and%20speak%20commands" target="_blank">
 <b>Train the the turtle to move depending on the voice commands you give</b></a><br>
 <span class="requirements">(requires microphone)</span></figcaption>
 </figure>
 <figure>
 <img src="images/follow lean.png">
-<figcaption><a href="snap/snap.html?project=follow%20lean&noRun" target="_blank">
+<figcaption><a href="snap/snap.html?project=follow%20lean" target="_blank">
 <b>Train the turtle to move left or right depending on which way you lean</b></a><br>
 <span class="requirements">(requires webcam and a <a href="#gpu">GPU</a>)</span></figcaption>
 </figure>
@@ -190,45 +197,85 @@ They run best in the Chrome browser.
 <b>Play <i>Simon Says</i> using machine learning</b></a><br>
 <span class="requirements">(requires webcam, speaker/headphones and a <a href="#gpu">GPU</a>)</span></figcaption>
 </figure>
+<figure id="dont-touch-your-face">
+<img src="images/dont touch your face.png">
+<figcaption><a href="snap/snap.html?project=dont%20touch%20your%20face" target="_blank">
+<b>Run an app that warns you if you touch your face</b></a><br>
+<span class="requirements">(requires webcam and a <a href="#gpu">GPU</a>)</span></figcaption>
+</figure>
 <figure>
 <img src="images/guess my word.png">
-<figcaption><a href="snap/snap.html?project=guess%20my%20word&noRun" target="_blank">
+<figcaption><a href="snap/snap.html?project=guess%20my%20word" target="_blank">
 <b>Play <i>Guess My Word</i> that works by turning words into 300 numbers</b></a><br>
 <span class="requirements">(requires speaker/headphones and optional microphone)</span></figcaption>
 </figure>
 <figure>
 <img src="images/style transfer.png">
-<figcaption><a href="snap/snap.html?project=style%20transfer&noRun" target="_blank">
+<figcaption><a href="snap/snap.html?project=style%20transfer" target="_blank">
 <b>Turn a photo into 8 different paintings</b></a><br>
 <span class="requirements">(requires webcam (but easily modified to use any image instead) and <a href="#gpu">a GPU</a>)</span></figcaption>
 </figure>
 <figure>
+<img src="images/AI Questions.png">
+<figcaption><a href="snap/snap.html?project=AI Questions" target="_blank">
+<b>Answers questions about this Snap! AI library using the<a href="https://research.google/pubs/pub46808/" target="_blank">
+Universal Sentence Encoder</a></b><br>
+<span class="requirements">(might be slow without a <a href="#gpu">GPU</a>)</span></figcaption>
+</figure>
+<figure>
+<img src="images/question answer.png">
+<figcaption><a href="snap/snap.html?project=question answer" target="_blank">
+<b>Answers questions about Snap! using the Snap! Wikipedia article using
+<a href="https://blog.tensorflow.org/2020/03/exploring-helpful-uses-for-bert-in-your-browser-tensorflow-js.html"
+target="_blank">BERT</a></b><br>
+<span class="requirements">(might be slow without a <a href="#gpu">GPU</a>)</span></figcaption>
+</figure>
+<figure>
+<img src="images/codenames.png">
+<figcaption><a href="snap/snap.html?project=codenames" target="_blank">
+<b>Suggest spymaster clues for the <a href="chapter-5.html#codenames">Codenames</a> game.</b></a><br>
+<span class="requirements">(might be slow without a <a href="#gpu">GPU</a>)</span></figcaption>
+</figure>
+<figure>
 <img src="images/translate.png">
-<figcaption><a href="snap/snap.html?project=translate&noRun" target="_blank">
+<figcaption><a href="snap/snap.html?project=translate" target="_blank">
 <b>Translation using 300 numbers and a word list with 2.5% coverage</b></a><br>
 <span class="requirements">(no special requirements)</span></figcaption>
 </figure>
+
 <figure>
 <img src="images/predict function.png">
-<figcaption><a href="snap/snap.html?project=predict function&noRun" target="_blank">
+<figcaption><a href="snap/snap.html?project=predict function" target="_blank">
 <b>Guesses the relationship between two lists of numbers</b></a><br>
 <span class="requirements">(runs very slowly without a <a href="#gpu">GPU</a>)</span></figcaption>
 </figure>
 <figure>
+<img src="AI-Teacher-Guide/images/noisy polygon.png">
+<figcaption><a href="snap/snap.html?project=noisy polygon" target="_blank">
+<b>Learns to predict your ratings of "Abstract Art"</b></a><br>
+<span class="requirements">(runs very slowly without a <a href="#gpu">GPU</a>)</span></figcaption>
+</figure>
+<figure>
 <img src="images/tic tac toe machine learning.png">
-<figcaption><a href="snap/snap.html?project=tic tac toe machine learning&noRun" target="_blank">
+<figcaption><a href="snap/snap.html?project=tic tac toe machine learning" target="_blank">
 <b>Learns to play Tic Tac Toe</b></a><br>
 <span class="requirements">(runs very slowly without a <a href="#gpu">GPU</a>)</span></figcaption>
 </figure>
 <figure>
 <img src="images/naming-colors.png">
-<figcaption><a href="snap/snap.html?project=naming colors&noRun" target="_blank">
-<b>Names colors badly - Improve it! </b></a><br>
+<figcaption><a href="snap/snap.html?project=naming colors" target="_blank">
+<b>Names colors badly - Improve it!</b></a><br>
+<span class="requirements">(runs very slowly without a <a href="#gpu">GPU</a>)</span></figcaption>
+</figure>
+<figure>
+<img src="images/confidence guesser.png">
+<figcaption><a href="snap/snap.html?project=confidence guesser" target="_blank">
+<b>Guesses the level of confidence indicated by a sentence</b></a><br>
 <span class="requirements">(runs very slowly without a <a href="#gpu">GPU</a>)</span></figcaption>
 </figure>
 <figure>
 <img src="images/image analogy.png">
-<figcaption><a href="snap/snap.html?project=image embedding&noRun" target="_blank">
+<figcaption><a href="snap/snap.html?project=image embedding" target="_blank">
 <b>Tries to solve analogy problems with photos (partially successfully - can you improve it?)</b></a><br>
 <span class="requirements">(runs very slowly without a <a href="#gpu">GPU</a>)</span></figcaption>
 </figure>
@@ -246,7 +293,7 @@ this JavaScript file on Github</a> and then calls the functions defined therein.
 <p>
 Send email to Ken Kahn (toontalk@gmail.com) if you encounter problems or have questions.
 </p>
-<h3 id="gpu">GPU required for chapter 4 image recognition and some demos</h3>
+<h3 id="gpu">GPU required for chapter 4 image recognition, chapter 6 machine learning, and some demos</h3>
 <p>
 Nearly all modern computers have a <a href="http://www.nvidia.com/object/what-is-gpu-computing.html" target="_blank">GPU</a>.
 Without one or with a very primitive one programs using machine learning may run very slowly.
