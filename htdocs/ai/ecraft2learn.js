@@ -271,11 +271,12 @@ window.ecraft2learn =
         if (!inside_snap()) {
             return x;
         }
-        if (Array.isArray(x) || x instanceof Float32Array) {
+        if (Array.isArray(x) || ArrayBuffer.isView(x) && !(x instanceof DataView)) {
+            // array or typed array
             return new List(x.map(javascript_to_snap));
         }
         if (typeof x === 'object') {
-            if (x instanceof List) {
+            if (x instanceof List || x instanceof Costume) {
                 return x;
             }
             if (x === null) {
@@ -303,6 +304,14 @@ window.ecraft2learn =
             return numberify(x);
         }
         return x;       
+    };
+    const array_to_object = (array) => {
+        // array alternates between keys and values
+        const object = {};
+        for (let i = 0; i < array.length; i += 2) {
+            object[array[i]] = array[i+1];
+        };
+        return object;
     };
     let add_photo_to_canvas = function (image_or_video, new_width, new_height, mirrored) {
         // Capture a photo by fetching the current contents of the video
@@ -671,10 +680,13 @@ window.ecraft2learn =
         if (!sprite) {
             sprite = ide.stage;
         }
-        sprite.addCostume(costume);
+        if (!sprite.costumes.contains(costume)) {
+            sprite.addCostume(costume);
+        }
         sprite.wearCostume(costume);
         ide.hasChangedMedia = true;
     };
+    const get_image_data = (canvas) => canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
     const post_image = function post_image(image, cloud_provider, callback, error_callback) {
         // based upon https://developer.mozilla.org/en-US/docs/Web/Guide/HTML/Forms/Sending_forms_through_JavaScript
         cloud_provider = cloud_provider.trim();
@@ -711,7 +723,10 @@ window.ecraft2learn =
 //               var proxy_url = "https://toontalk.appspot.com/p/" + 
 //               encodeURIComponent("https://gateway-a.watsonplatform.net/visual-recognition/api/v3/classify?version=2016-05-19&api_key=" + key);
 //               XHR.open('POST', proxy_url);
-              XHR.open('POST', "https://apikey:" + key + "gateway.watsonplatform.net/visual-recognition/api/v3/classify?version=2018-03-19");
+              XHR.open('POST', 
+                       "https://gateway.watsonplatform.net/visual-recognition/api/v3/classify?version=2018-03-19",
+                       true,
+                       "apikey:" + key);
               XHR.send(formData);
               break;
           case "Google":
@@ -802,7 +817,7 @@ window.ecraft2learn =
           ecraft2learn.training_buckets[source] = buckets;
           let receive_messages_from_iframe = 
               function (event) {
-                  if (event.data === "Loaded") {
+                  if (event.data === "MobileNet loaded") {
                       machine_learning_window.postMessage({training_class_names: buckets,
                                                            training_name: training_name},
                                                           "*");
@@ -887,6 +902,8 @@ window.ecraft2learn =
               URL = "/mobilenet/index.html";
           } else if (source === 'tensorflow.js') {
               URL = "/tensorflow/index.html";
+          } else if (source === 'segmentation') {
+              URL = "/segmentation/index.html";
           }
           if (window.location.hostname === "localhost" || window.location.protocol === 'file:') {
               URL = ".." + URL;
@@ -965,7 +982,9 @@ window.ecraft2learn =
           let canvas = add_photo_to_canvas(image || ecraft2learn.video, 
                                            training_image_width,
                                            training_image_height);
-          let image_URL = canvas.toDataURL('image/png');
+          // could be optimized to use ImageData instead but that would interfere with the option of training collaboratively
+          // could keep this for training but not for prediction/classification...
+          let image_URL = canvas.toDataURL('image/png'); 
           machine_learning_window.postMessage(message_maker(image_URL), "*");   
       }
       if (ecraft2learn.video) {
@@ -1029,7 +1048,7 @@ window.ecraft2learn =
         request_of_support_window('style transfer',
                                   'Ready',
                                   () => {
-                                      return {style_transfer_request: {URL: costume_canvas.toDataURL(),
+                                      return {style_transfer_request: {image_data: get_image_data(costume.contents),
                                                                        style: style_to_folder_name[style.trim()],
                                                                        time_stamp: time_stamp}};
                                   },
@@ -1039,21 +1058,14 @@ window.ecraft2learn =
                                              message.style_transfer_response.time_stamp === time_stamp;
                                   },
                                   (message) => {
-                                      // support window has responded with a data URL
-                                      // need to create a canvas and draw the image on it
+                                      // support window has responded with image_data
+                                      // need to create a canvas and draw the image_data on it
                                       let new_canvas = document.createElement('canvas');
                                       new_canvas.height = costume_canvas.height;
                                       new_canvas.width  = costume_canvas.width;
-                                      let image = new Image();
-                                      image.src = event.data.style_transfer_response.URL;
-                                      // remove so this only runs once
-                                      // alternatively could use the {once: true} option to addEventListener 
-                                      // but not all browsers accept that
-                                      image.onload = function() {
-                                          new_canvas.getContext('2d').drawImage(image, 0, 0, costume_canvas.width, costume_canvas.height);
-                                          // create the costume and pass it to callback
-                                          invoke_callback(callback, create_costume(new_canvas, style + " of " + costume.name));
-                                      }
+                                      new_canvas.getContext('2d').putImageData(message.style_transfer_response.image_data, 0, 0);
+                                      // create the costume and pass it to callback
+                                      invoke_callback(callback, create_costume(new_canvas, style + " of " + costume.name));
                                    });
     };
     const get_image_features = function(costume, callback) {
@@ -1066,7 +1078,7 @@ window.ecraft2learn =
         request_of_support_window('training using camera',
                                   'MobileNet loaded',
                                   () => {
-                                      return {get_image_features: {URL: costume_canvas.toDataURL(),
+                                      return {get_image_features: {image_data: get_image_data(costume_canvas),
                                                                    time_stamp: time_stamp}};
                                   },
                                   (message) => {
@@ -1429,7 +1441,7 @@ window.ecraft2learn =
         request_of_support_window('image classifier',
                                   'Ready',                                  
                                   () => {
-                                      return {classify: {URL: canvas.toDataURL(),
+                                      return {classify: {image_data: get_image_data(canvas),
                                                          top_k: top_k,
                                                          time_stamp: time_stamp}};
                                   },
@@ -1637,6 +1649,102 @@ window.ecraft2learn =
                 }
             }   
         }
+    };
+    let loading_body_pix_message_presented = false;
+    const segmentation_handler = (multi_person, costume, options, callback, error_callback, config, default_config) => {
+      if (options) {
+          options = array_to_object(snap_to_javascript(options));
+      } else {
+          options = {};
+      }
+      if (!options.config) {
+          options.config = default_config;
+      }
+      const time_stamp = Date.now();
+      request_of_support_window('segmentation',
+                                'Ready',
+                                () => {
+                                    if (!loading_body_pix_message_presented) {
+                                        show_message("Loading BodyPix model...");
+                                        loading_body_pix_message_presented = true;
+                                    }
+                                    const image_data = get_image_data(costume.contents);
+                                    return {segmentations_and_poses: {image_data, options, time_stamp, multi_person}};
+                                },
+                                (message) => {
+                                    return (message.segmentation_response && message.time_stamp === time_stamp) ||
+                                            // reponse received and it is for the same request (time stamps match)
+                                           message.error_message;
+                                },
+                                (message) => {
+                                    if (loading_body_pix_message_presented) {
+                                        show_message("");
+                                    }
+                                    if (message.error_message) {   
+                                        const title = "Error computing segmentations of a costume";
+                                        const full_message = title + ": " + message.error_message;
+                                        if (error_callback) {
+                                            console.log(full_message);
+                                            invoke_callback(error_callback, full_message);
+                                        } else {
+                                            inform(title, message.error_message);
+                                        }
+                                        return;
+                                    }
+                                    // responded with the data structure described in 
+                                    // https://github.com/tensorflow/tfjs-models/tree/master/body-pix
+                                    const segmentations = message.segmentation_response;
+                                    const create_segmentation_costume = (segmentation) => {
+                                        // turn ImageData into a costume
+                                        const canvas = document.createElement('canvas');
+                                        canvas.setAttribute('width',  segmentation.width);
+                                        canvas.setAttribute('height', segmentation.height);
+                                        canvas.getContext('2d').putImageData(segmentation.mask, 0, 0)
+                                        segmentation.costume = create_costume(canvas);
+                                        // the following takes up lots of resources and isn't needed if one is creating costumes
+                                        delete segmentation.mask; 
+                                    }
+                                    if (options["create segmentation costume"]) {
+                                        if (multi_person) {
+                                            segmentations.forEach(create_segmentation_costume);
+                                        } else {
+                                            create_segmentation_costume(segmentations); // there is only one
+                                        }                                  
+                                    }
+                                    if (options["create poses"]) {
+                                        if (!multi_person) {
+                                            // a better name
+                                            segmentations["all poses"] = segmentations.allPoses;
+                                        }
+                                    } else if (multi_person) {
+                                        // poses not requested so release them
+                                        segmentations.forEach((segmentation) => {
+                                            delete segmentation.pose;
+                                        });
+                                    }
+                                    if (options["create pixel codes"]) {
+                                        // a better name
+                                        if (multi_person)  {
+                                            segmentations.forEach((segmentation) => {
+                                                segmentation["pixel codes"] = segmentation.data;
+                                            });
+                                        } else {
+                                            segmentations["pixel codes"] = segmentations.data;
+                                        }
+                                    }
+                                    // no-ops if the following aren't defined
+                                    // if needed they've been moved to better names
+                                    delete segmentations.allPoses;
+                                    delete segmentations.data;
+                                    if (multi_person) {
+                                        segmentations.forEach((segmentation) => {
+                                            // if wanted has been moved to "pixel codes"
+                                            delete segmentation.data;
+                                        });
+                                    }
+                                    invoke_callback(callback, 
+                                                    javascript_to_snap(segmentations));
+                                });
     };
     let magnitude = function (vector) {
         let sum_of_squares = 0;
@@ -2389,6 +2497,13 @@ xhr.send();
       // snap_callback is called with the result of the image recognition
       // show_photo_or_costume if a boolean displays the photo when it is taken -- for backwards compatibility
       // the new normal use if that show_photo_or_costume is a costume to be sent to the services
+      if (!ecraft2learn.video) {
+          // setup must be asynchronous since it may involve asking permission to use the camera
+          ecraft2learn.setup_camera(undefined, undefined, () => {
+                ecraft2learn.take_picture_and_analyse(cloud_provider, show_photo_or_costume, snap_callback);
+          });
+          return;
+      }
       cloud_provider = cloud_provider.trim();
       if (cloud_provider === 'Watson') {
           cloud_provider = 'IBM Watson';
@@ -2433,13 +2548,24 @@ xhr.send();
         let canvas = add_photo_to_canvas(ecraft2learn.video,
                                          2*ecraft2learn.video.videoWidth,
                                          2*ecraft2learn.video.videoHeight);
-        costume = create_costume(canvas);
+        if (ecraft2learn.costume_for_take_picture_and_analyse) {
+            // reuse the old costume since otherwise stage fills up with lots of costumes
+            costume = ecraft2learn.costume_for_take_picture_and_analyse;
+            costume.canvas = canvas;
+            costume.image = canvas;
+            costume.contents = canvas;
+            get_snap_ide().hasChangedMedia = true;
+        } else {
+            costume = create_costume(canvas);
+            ecraft2learn.costume_for_take_picture_and_analyse = costume;
+        }
         canvas_for_analysis = canvas;
     }
     if (show_photo_or_costume === true) {
+        costume.name = "recent photo";
         add_costume(costume);
     }
-    image_recognitions[cloud_provider] = {costume: create_costume(canvas_for_analysis)};
+    image_recognitions[cloud_provider] = {costume: costume}; // was create_costume(canvas_for_analysis)
     switch (cloud_provider) {
     case "IBM Watson":
     case "Microsoft":
@@ -2627,7 +2753,7 @@ xhr.send();
          };
      };
      record_callbacks(finished_callback);
-     create_sound("http://localhost:59125");     
+     create_sound("http://mary.dfki.de:59125");     
   },
   get_mary_tts_voice_names: function () {
     return new List(mary_tts_voices.map(function (voice) { return voice[1]; }));
@@ -2895,6 +3021,25 @@ xhr.send();
           source = 'training using camera';
       }
       return ecraft2learn.support_iframe[source].style.width === "100%";
+  },
+  segmentation_and_pose: (costume, options, callback, error_callback, config) => {
+      // single person
+      const default_config = {flipHorizontal: true,
+                              internalResolution: 'medium',
+                              segmentationThreshold: 0.7};
+      segmentation_handler(false, costume, options, callback, error_callback, config, default_config);
+  },
+  segmentations_and_poses: (costume, options, callback, error_callback, config) => {
+      // multiple people
+      const default_config = {flipHorizontal: true,
+                              internalResolution: 'medium',
+                              segmentationThreshold: 0.7,
+                              maxDetections: 10,
+                              scoreThreshold: 0.2,
+                              nmsRadius: 20,
+                              minKeypointScore: 0.3,
+                              refineSteps: 10};
+       segmentation_handler(true, costume, options, callback, error_callback, config, default_config);
   },
   poses: function (callback, no_display) {
       var ask_for_poses = function (window_just_created) {
