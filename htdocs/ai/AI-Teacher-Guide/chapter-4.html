@@ -98,6 +98,7 @@ When the training tab launches you'll see two buttons:
 <p class="instructions">
 The <span class="block-name">Train with image buckets ...</span> block only needs the first argument telling it the bucket labels.
 It has three additional optional arguments:
+</p>
 <ol class="instructions">
 <li>
 Whether to start fresh or continue with the current training if this block is run more than once in a session.
@@ -109,7 +110,6 @@ Text that will appear on the training page. Can be in HTML format.
 Blocks to run after returning from the training tab.
 </li>
 </ol>
-</p>
 </span>
 
 <p class="instructions">
@@ -392,10 +392,10 @@ and the program should work just fine.
 <figcaption>A demonstration of pose detection</figcaption>
 </figure>
 <p class="background-information">
-Google Creative Lab recently released browser-based software called <i>Posenet</i> for
+Google Creative Lab released browser-based software called <i>Posenet</i> for
 <a href="https://medium.com/tensorflow/real-time-human-pose-estimation-in-the-browser-with-tensorflow-js-7dd0bc881cd5" target="_blank">
 real-time human pose estimation</a>.
-This software can determine the locations of 17 different body parts:
+This software can determine the locations of 17 different face and body parts:
 noses, eyes, ears, shoulders, elbows, wrists, hips, knees, and ankles.
 Posenet was created using deep machine learning and makes use of<a href="https://js.tensorflow.org/" target="_blank">Tensorflow.js</a>.
 Many are familiar with how pose detection can be embedded in video games via
@@ -406,7 +406,7 @@ What is so impressive about Posenet is that it works in the browser without any 
 The <span class="block-name">poses</span> block reports a list of poses.
 One pose for each person in front of the camera.
 The system can be configured on the "poses" tab to be optimised for scenes with more than one person.
-Tradeoffs between speed and accuracy can also be made.
+Trade-offs between speed and accuracy can also be made.
 The "poses" tab is also a good place to explore pose detection.
 There are two kinds of <span class="block-name">pose property</span> blocks that can fetch information for a <i>pose</i>.
 They both can specify that one wants the confidence the system has that it has correctly identified a particular body part
@@ -443,7 +443,25 @@ full screen version of the game</a>
 can be enhanced in <a href="#simon-says-enhancements">many ways</a>.
 Be creative.
 </p>
-
+<p class="advanced-topic">
+Click to read an advanced topic
+</p>
+<span class="advanced-topic-body">
+<h4 class="how-it-works-white">How does pose detection work?</h4>
+<p class="how-it-works">
+Google trained a deep learning model on over 64,000 images of people.
+Associated with each image was a mask showing which pixels were of a person (indicated by one or white) or not (zero or black).
+Also the locations of up to 17 face and body key points were provided.
+The trained model starts by first identifying the locations of body parts in a new image. 
+It then refines their positions by considering neighbouring key points (e.g. left elbow connects only with left wrist and left shoulder).
+If the image is of more than one person, the model needs to separate the key points to different people. 
+The algorithm starts with the key point it has the most confidence rather than a favoured starting point such as the nose.
+It then considers body part locations connected to that key point, and then those connected to those parts, and so on.
+If, in addition, <a href="#segmentation">segmentation</a> is also required it assigns each pixel a code for each body part it belongs.
+Full details can be found in the paper <a href="https://arxiv.org/abs/1803.08225" target="_blank">
+PersonLab: Person Pose Estimation and Instance Segmentation with a Bottom-Up, Part-Based, Geometric Embedding Model</a>.
+</p>
+</span>
 <h4 class="background-information-white" id="segmentation">Labelling body parts in images of people</h4>
 <p class="background-information">
 <a href="https://github.com/tensorflow/tfjs-models/tree/master/body-pix" target="_blank">BodyPix</a>
@@ -494,6 +512,11 @@ If no list is provided a rainbow of colours is used.
 <b>create person bitmasks</b> if true and using the multi-person <span class="block-name">segmentations and poses of <i>costume</i> ...</span> block
 then a list of zeros and ones is reported. One indicating that the pixel is part of a person and zero otherwise.
 </li>
+<li>
+<b>config</b> if provided is an alternating list of keys and values as described
+<a href="https://github.com/tensorflow/tfjs-models/tree/master/body-pix#user-content-params-in-segmentpersonparts">here for single person segmentation</a>
+and <a href="https://github.com/tensorflow/tfjs-models/tree/master/body-pix#user-content-params-in-segmentmultipersonparts">here for multi-person segmentation</a>.
+</li>
 </ul>
 <p class="instructions">
 These blocks report a list of findings.
@@ -528,12 +551,61 @@ Here you can explore the <span class="block-name">segmentations and poses of <i>
         container_style = "width: 1000px; height: 750px;"
         caption = "See if the segmentation model can correctly find each person.">
 </figure>
-</p>
 <p class="instructions">
 The <a href="../index.html#balloon-game">Balloon Game</a> is an example of how a project might use segmentation.
 Balloons slowly fall down and a point is awarded when popped by a hand or foot.
 Balloons that pop on someone's head losses a point.
 </p>
+
+<h4 class="background-information-white" id="detection">Detecting objects in an image</h4>
+<p class="background-information">
+<a href="https://github.com/tensorflow/tfjs-models/tree/master/coco-ssd" target="_blank">COCO-SSD</a>
+is a deep learning object detection model.
+It can detect up to 100 objects of 80 different kinds.
+It labels them and provides a "bounding box" for each object detected.
+A bounding box is the smallest rectangle that surrounds the object.
+</p>
+<p class="background-information">
+COCO-SSD was trained using the <a href="http://cocodataset.org/" target="_blank">COCO dataset</a>
+which has labels and locations of 1.5 million objects in over 200,000 images.
+SSD stands for Single Shot MultiBox Detection because COCO-SSD is a single model that in one go 
+has been trained to detect multiple bounding boxes of several objects in an image.
+</p>
+<p class="instructions">
+The <span class="block-name">objects in costume</span> block reports a list of descriptions of each object detected.
+It optionally accepts a list of options.
+</p>
+<figure class="instructions-white">
+<img src="images/detect objects options.png" class="center">
+<figcaption>An example of options to the <span class="block-name">objects in costume</span> block</figcaption>
+</figure>
+<ul>
+<li>
+<b>load smaller, faster, but less accurate model</b> if true loads a model that is about one third the size
+of the default model. It is faster but less accurate.
+</li>
+<li>
+<b>maximum number of objects</b> if provided overrules the default value of 20. 100 is the largest
+number of objects the model can detect.
+</li>
+<li>
+<b>minimum confidence score</b> if provided overrules the default value of 0.5.
+The <span class="block-name">objects in costume</span> block will only report objects with
+a confidence score of at least this value.
+</li>
+</ul>
+<p>
+You can experiment with the <span class="block-name">objects in costume</span> block by clicking this image:
+</p>
+<figure class = "snap-iframe"
+        id = "detect objects"
+        full_screen = "true"
+        edit_mode = "true"
+        stage_ratio = ".83"
+        container_style = "width: 1000px; height: 750px;"
+        caption = "This model can find objects in an image. TRY IT!">
+</figure>
+
 <h4 class="instructions-white" id="style-transfer">Creating images in the style of famous paintings</h4>
 <p class="instructions">
 Recently researchers have invented a way to use two machine learning programs to take an image and turn it into one that 
@@ -688,23 +760,11 @@ the time the occupant usually gets up.
 It then moves the items into piles for each kind of thing.
 </li>
 <li>
-The augmented reality <a href="../index.html#balloon-game" target="_blank">Balloon Game</a> can be improved in many ways.
-One idea is that addtional body parts can have colours that are used in the game to determine what happens when a coloured balloon comes into contact.
-</li>
-<li>
-The <a href="../index.html#dont-touch-your-face" target="_blank">Don't Touch your Face Game</a> could be improved in many ways including
-<a href="chapter-1.html">speech synthesis</a>.
-</li>
-<li>
-Train the computer to know which part of a face is being pointed to.
-Have the program do different things depending upon whether you point to your eyes, ears, or mouth.
-</li>
-<li>
 And thousands more. Be creative.
 </li>
 </ul>
 <p class="project-ideas">
-Many projects are possible by using the pose detection block and style transfer block:
+Many projects are possible by using the pose detection block, the segmentation block, and the style transfer block:
 </p>
 <ul class="project-ideas">
 <li id="simon-says-enhancements">
@@ -741,6 +801,22 @@ Hint how does the distance between the eyes change as someone moves closer?
 There are many other things one can use <a href="#pose-detection">pose detection</a> for than just <i>Simon Says</i>.
 Think animation, <a href="https://en.wikipedia.org/wiki/Telepresence" target="_blank">telepresence</a>,
 interactive art, fitness, sport science, security, and more.
+</li>
+<li>
+The augmented reality <a href="../index.html#balloon-game" target="_blank">Balloon Game</a> can be improved in many ways.
+One idea is that additional body parts can have colours that are used in the game to determine what happens when a coloured balloon comes into contact.
+</li>
+<li>
+The <a href="../index.html#dont-touch-your-face" target="_blank">Don't Touch your Face Game</a> could be improved in many ways including
+<a href="chapter-1.html">speech synthesis</a>.
+</li>
+<li>
+Train the computer to know which part of a face is being pointed to.
+Have the program do different things depending upon whether you point to your eyes, ears, or mouth.
+</li>
+<li>
+Using the poses block add some funny noses or ears to images of people. 
+Run this in a forever loop to add your effects to a live video feed.
 </li>
 <li>
 Create a virtual art museum filled with style transfer images.
