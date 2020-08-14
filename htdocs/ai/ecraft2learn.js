@@ -22,14 +22,38 @@ window.ecraft2learn =
           }
       };
       let load_script = (url, when_loaded, if_error) => {
+          record_callbacks(when_loaded, if_error);
+          if (typeof ecraft2learn === 'object') {
+              // might be reloading ecraft2learn.js for example
+              if (typeof ecraft2learn.loaded_scripts === 'undefined') {
+                  ecraft2learn.loaded_scripts = [];
+              }
+              if (ecraft2learn.loaded_scripts.indexOf(url) >= 0) {
+                  invoke_callback(when_loaded);
+                  return;
+              }
+              show_message("Loading...");
+          }
           const script = document.createElement("script");
           script.type = "text/javascript";
           script.src = relative_to_absolute_url(url);
           if (when_loaded) {
-              script.onload = when_loaded;
+              script.onload = () => {
+                  if (typeof ecraft2learn === 'object') {
+                      show_message();
+                      if (typeof ecraft2learn.loaded_scripts === 'undefined') {
+                          ecraft2learn.loaded_scripts = [];
+                      }
+                      ecraft2learn.loaded_scripts.push(url);
+                  }
+                  invoke_callback(when_loaded);
+              };
           }
           if (if_error) {
-              script.onerror = if_error;
+              script.onerror = (error) => {
+                  show_message();
+                  invoke_callback(if_error, error.message);
+              };
           }
           document.head.appendChild(script);
           return script;
@@ -37,7 +61,7 @@ window.ecraft2learn =
       const inside_snap = function () {
           // this library can be used directly in JavaScript or with other JavaScript-based languages
           // a small amount is Snap! specific and this is used to make those parts conditional on being inside Snap!
-          return typeof world === 'object' && typeof WorldMorph === 'function' && world instanceof WorldMorph;
+          return typeof IDE_Morph === 'function';
       };
       let get_key = function (key_name) {
           // API keys are provided by Snap! reporters
@@ -101,7 +125,7 @@ window.ecraft2learn =
           var blockTemplate = allBlocks[index].templateInstance();
           return invoke_block_morph(blockTemplate);
       };
-      let get_snap_ide = function (start) {
+      const get_snap_ide = (start) => {
           // finds the Snap! IDE_Morph that is the element 'start' or one of its ancestors
           if (!inside_snap()) {
               return;
@@ -158,6 +182,7 @@ window.ecraft2learn =
           if (ecraft2learn.stop_speech_recognition) {
               ecraft2learn.stop_speech_recognition();
           }
+          ecraft2learn.stop_audio_recognition();
           if (ecraft2learn.support_window) {
               Object.values(ecraft2learn.support_window).forEach(function (support_window) {
                   support_window.postMessage('stop', '*');
@@ -686,6 +711,7 @@ window.ecraft2learn =
         sprite.wearCostume(costume);
         ide.hasChangedMedia = true;
     };
+    const get_costume_data = (costume) => get_image_data(costume.contents);
     const get_image_data = (canvas) => canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
     const post_image = function post_image(image, cloud_provider, callback, error_callback) {
         // based upon https://developer.mozilla.org/en-US/docs/Web/Guide/HTML/Forms/Sending_forms_through_JavaScript
@@ -788,15 +814,17 @@ window.ecraft2learn =
     };
     let train = function (options) {
       // options can be
-      let source = options.source; // can be 'training using camera','training using microphone', "posenet", or more
-      let buckets_as_snap_list = options.buckets_as_snap_list; // list of labels (as Snap! object)
-      let add_to_previous_training = options.add_to_previous_training; // if false will throw away any current training
-      let page_introduction = options.page_introduction; // optional HTML that will appear in place of the default on training page
-      let callback = options.callback; // if defined will be called when training finished 
-      let together = options.together; // if true enable togetherJS collaboration
-      let together_url = options.together_url; // another Snap! (or NetsBlox) wants to collaborate using this URL
-      let iframe_in_new_tab = options.iframe_in_new_tab; // if not true then iframe is either full size covering up Snap! or a single pixel
-      let training_name = options.training_name; // used by audio training 
+      let {source, // can be 'training using camera','training using microphone', "posenet", or more
+           buckets_as_snap_list, // list of labels (as Snap! object)
+           add_to_previous_training, // if false will throw away any current training
+           page_introduction, // optional HTML that will appear in place of the default on training page
+           callback, // if defined will be called when training finished 
+           together, // if true enable togetherJS collaboration
+           together_url,  // another Snap! (or NetsBlox) wants to collaborate using this URL
+           iframe_in_new_tab, // if not true then iframe is either full size covering up Snap! or a single pixel
+           training_name,  // used by audio training 
+           no_display_of_support_window // when for example sending images programmatically
+           } = options;
       let buckets = buckets_as_snap_list.asArray();
       if (source === 'training using microphone' && buckets.indexOf('_background_noise_') < 0) {
           buckets.push('_background_noise_');
@@ -813,22 +841,28 @@ window.ecraft2learn =
       };
       record_callbacks(callback);
       if (!ecraft2learn.support_window[source] || ecraft2learn.support_window[source].closed) {
-          let machine_learning_window = create_machine_learning_window(source);
+          let machine_learning_window = create_machine_learning_window(source, undefined, undefined, undefined, no_display_of_support_window);
           ecraft2learn.training_buckets[source] = buckets;
           let receive_messages_from_iframe = 
               function (event) {
-                  if (event.data === "MobileNet loaded") {
+                  if (event.data === "MobileNet loaded" || event.data === "Audio support loaded") {
                       machine_learning_window.postMessage({training_class_names: buckets,
-                                                           training_name: training_name},
+                                                           training_name,
+                                                           no_display_of_support_window},
                                                           "*");
-                  } else if (event.data === "Ready") {
-                      if (page_introduction) {
+                      if (no_display_of_support_window) {
+                         invoke_callback(callback);
+                      } else if (page_introduction) {
                           machine_learning_window.postMessage({new_introduction: page_introduction}, "*");
                       }
+                  } else if (event.data === "Ready") {
+//                       if (page_introduction) {
+//                           machine_learning_window.postMessage({new_introduction: page_introduction}, "*");
+//                       }
                       invoke_callback(callback, "Ready");
                   }
           };
-          window.addEventListener('message', receive_messages_from_iframe, false);               
+          window.addEventListener('message', receive_messages_from_iframe, false);         
           return;
       }           
       if (add_to_previous_training &&
@@ -845,7 +879,7 @@ window.ecraft2learn =
                       ecraft2learn.support_window[source].postMessage({new_introduction: page_introduction}, "*");
                   }
               }
-              open_support_window(source);
+              open_support_window(source, no_display_of_support_window);
           } else if (iframe_in_new_tab) {
               // would like to go to that window: ecraft2learn.support_window.focus[source]();
               // but browsers don't allow it unless clear the user initiated it
@@ -1050,7 +1084,7 @@ window.ecraft2learn =
         request_of_support_window('style transfer',
                                   'Ready',
                                   () => {
-                                      return {style_transfer_request: {image_data: get_image_data(costume.contents),
+                                      return {style_transfer_request: {image_data: get_costume_data(costume),
                                                                        style: style_to_folder_name[style.trim()],
                                                                        time_stamp: time_stamp}};
                                   },
@@ -1076,11 +1110,11 @@ window.ecraft2learn =
             return;
         }
         let time_stamp = Date.now();
-        let costume_canvas = costume.contents;
+//         let costume_canvas = costume.contents;
         request_of_support_window('training using camera',
                                   'MobileNet loaded',
                                   () => {
-                                      return {get_image_features: {image_data: get_image_data(costume_canvas),
+                                      return {get_image_features: {image_data: get_costume_data(costume),
                                                                    time_stamp: time_stamp}};
                                   },
                                   (message) => {
@@ -1110,7 +1144,9 @@ window.ecraft2learn =
                 };
                 window.addEventListener('message', receive_message);            
             }
-            ecraft2learn.support_window[support_window_type].postMessage(request_generator(), '*');
+            if (ecraft2learn.support_window[support_window_type]) {
+                ecraft2learn.support_window[support_window_type].postMessage(request_generator(), '*');
+            } // else may have loaded another project into Snap! and the old window is gone now
         };
         send_request_when_support_window_is(window_ready_state, support_window_type, send_request);
     };
@@ -1233,19 +1269,22 @@ window.ecraft2learn =
                                   });
     };
     const is_model_ready_for_prediction = (model_name, callback) => {
-        record_callbacks(callback);
-        request_of_support_window('tensorflow.js',
-                                  'Loaded',
-                                  () => {
-                                      return {is_model_ready_for_prediction: {model_name: model_name}};
-                                  },
-                                  (message) => {
-                                      return typeof message.ready_for_prediction === 'boolean' &&
-                                             message.model_name === model_name;
-                                  },
-                                  (message) => {
-                                      invoke_callback(callback, javascript_to_snap(message.ready_for_prediction));
-                                  });
+        // now if a model exists then it is ready for prediction
+        // if not yet trained the weights will be random but still capable of "predicting"
+        invoke_callback(callback, javascript_to_snap(true));
+//         record_callbacks(callback);
+//         request_of_support_window('tensorflow.js',
+//                                   'Loaded',
+//                                   () => {
+//                                       return {is_model_ready_for_prediction: {model_name: model_name}};
+//                                   },
+//                                   (message) => {
+//                                       return typeof message.ready_for_prediction === 'boolean' &&
+//                                              message.model_name === model_name;
+//                                   },
+//                                   (message) => {
+//                                       invoke_callback(callback, javascript_to_snap(message.ready_for_prediction));
+//                                   });
     };
     const predictions_from_model = (model_names, inputs, success_callback, error_callback,
     // optional categories added after release - really should have used a single JavaScript object as input
@@ -1292,6 +1331,102 @@ window.ecraft2learn =
 //                                       }
 //                                   });
 //     };
+    const get_prediction_from_teachable_machine_image_or_pose_model = (type, model_path, costume, success_callback, error_callback) => {
+        get_prediction_from_teachable_machine_model({type, costume}, model_path, success_callback, error_callback)
+    };
+    const get_prediction_from_teachable_machine_audio_model = (model_path, options, success_callback, error_callback) => {
+        if (typeof options !== 'object') {
+            options = {};
+        }
+        options.type = 'audio';
+        get_prediction_from_teachable_machine_model(options, model_path, success_callback, error_callback)
+    };
+    const get_prediction_from_teachable_machine_model = (options, model_path, success_callback, error_callback) => {
+        // based on https://github.com/googlecreativelab/teachablemachine-community/tree/master/libraries/image
+        // based on https://github.com/googlecreativelab/teachablemachine-community/tree/master/libraries/pose
+        // based on https://github.com/tensorflow/tfjs-models/tree/master/speech-commands
+        record_callbacks(success_callback, error_callback);
+        const full_model_path = relative_to_absolute_url(model_path);
+        const model_URL = full_model_path + "model.json";
+        const metadata_URL = full_model_path + "metadata.json";
+        const error_handler = (error) => {
+            if (error_callback) {
+                invoke_callback(error_callback, error.message);
+            } else {
+                console.error(error);
+            }
+        };
+        const report_predictions = (prediction) => {
+            let class_names;
+            let names_and_scores;
+            if (model.type === 'audio') {
+                class_names = model.wordLabels();
+                // turn it from float32array to array with 'map'
+                names_and_scores = Array.prototype.slice.call(prediction.scores).map((score, index) => [class_names[index], score]);
+            } else {
+                class_names = model.getClassLabels();
+                names_and_scores = prediction.map((score, index) => [class_names[index], score.probability]); 
+            }
+            invoke_callback(success_callback, javascript_to_snap(names_and_scores));
+        };
+        const predict = () => {
+            if (options.type === 'image') {
+                model.predict(options.costume.contents).then(report_predictions).catch(error_handler);
+            } else if (options.type === 'pose') {
+                model.estimatePose(options.costume.contents).then(({pose, posenet_output}) => {
+                    // run input through teachable machine classification model
+                    model.predict(posenet_output).then(report_predictions).catch(error_handler);
+                }).catch(error_handler);
+            } else if (options.type === 'audio' && typeof ecraft2learn.listening_model === 'undefined') {
+                ecraft2learn.listening_model = model;
+                model.listen(report_predictions, {invokeCallbackOnNoiseAndUnknown: true}); // could pass options in here
+            }
+        };
+        const when_loaded = (loaded_model) => {
+            ecraft2learn.teachable_machine_models[model_path] = loaded_model;
+            model = loaded_model;
+            model.type = options.type;
+            predict();
+        };
+        if (typeof ecraft2learn.teachable_machine_models === 'undefined') {
+            ecraft2learn.teachable_machine_models = {};
+        }
+        let model = ecraft2learn.teachable_machine_models[model_path];
+        const api = options.type === 'image' ? tmImage : options.type == 'pose' && tmPose;
+        if (model === undefined) {
+            if (options.type === 'audio') {
+                // test this with https://teachablemachine.withgoogle.com/models/HnIjdQ-A3/ - It listens for "OK"
+                const recognizer = speechCommands.create("BROWSER_FFT", // fourier transform type, not useful to change
+                                                         undefined, // speech commands vocabulary feature, not useful for your models
+                                                         model_URL,
+                                                         metadata_URL);
+                // check that model and metadata are loaded via HTTPS requests.
+                const when_ensured_loaded = () => {
+                    when_loaded(recognizer);
+                };
+                recognizer.ensureModelLoaded().then(when_ensured_loaded).catch(error_handler);
+            } else {
+                api.load(model_URL, metadata_URL).then(when_loaded).catch(error_handler);                
+            }
+        } else {
+            predict();
+        }
+    };
+//         const get_webcam = (callback) => {
+//             if (typeof ecraft2learn.posenet_webcam === 'undefined') {
+//                 const size = 200;
+//                 const webcam = new tmPose.Webcam(size, size, option.mirrored); // width, height, flip
+//                 webcam.setup() // request access to the webcam
+//                 .then(() => {
+//                           webcam.play().then(() => {
+//                                                  ecraft2learn.posenet_webcam = webcam;
+//                                                  callback(webcam);
+//                                              })
+//                                        .catch(error_handler)});               
+//             } else {
+//                 callback(ecraft2learn.posenet_webcam);
+//             }
+//         };
     const load_tensorflow_model_from_URL = (URL, success_callback, error_callback) => {
         record_callbacks(success_callback, error_callback);
         URL = relative_to_absolute_url(URL);
@@ -1373,9 +1508,12 @@ window.ecraft2learn =
                                       if (message.trial_optimize_hyperparameters) {
                                           message.trial_optimize_hyperparameters.trial_number = message.trial_number;
                                           message.trial_optimize_hyperparameters.score = message.trial_score;
+                                          const hyperparameters_and_results_combined =
+                                              Object.assign(message.trial_optimize_hyperparameters, message.results);
+                                          // not all browsers support this:
+                                          //  {...message.trial_optimize_hyperparameters, ...message.results}
                                           invoke_callback(trial_end_callback,
-                                                          javascript_to_snap({...message.trial_optimize_hyperparameters,
-                                                                              ...message.results}),
+                                                          javascript_to_snap(hyperparameters_and_results_combined),
                                                           message.trial_number);
                                           return true; // keep this message receiver for subsequent messages
                                       } else if (message.final_optimize_hyperparameters) {
@@ -1435,15 +1573,15 @@ window.ecraft2learn =
         if (not_a_costume(costume, 'Labels for costume', labels_callback, probabilities_callback)) {
             return;
         }
-        image_class_from_canvas(costume.contents, top_k, labels_callback, probabilities_callback);
+        image_class_from_costume(costume, top_k, labels_callback, probabilities_callback);
     };
-    const image_class_from_canvas = function(canvas, top_k, labels_callback, probabilities_callback) {
+    const image_class_from_costume = function(costume, top_k, labels_callback, probabilities_callback) {
         // timestamp used to respond appropriately to multiple outstanding requests
         let time_stamp = Date.now();
         request_of_support_window('image classifier',
                                   'Ready',                                  
                                   () => {
-                                      return {classify: {image_data: get_image_data(canvas),
+                                      return {classify: {image_data: get_costume_data(costume),
                                                          top_k: top_k,
                                                          time_stamp: time_stamp}};
                                   },
@@ -1668,7 +1806,7 @@ window.ecraft2learn =
                     show_message("Loading object detection model...");
                     loading_coco_ssd_message_presented = true;
                 }
-                const image_data = get_image_data(costume.contents);
+                const image_data = get_costume_data(costume);
                 return {detect_objects: {image_data, options, time_stamp}};
             },
             (message) => {
@@ -1717,7 +1855,7 @@ window.ecraft2learn =
                                         show_message("Loading BodyPix model...");
                                         loading_body_pix_message_presented = true;
                                     }
-                                    const image_data = get_image_data(costume.contents);
+                                    const image_data = get_costume_data(costume);
                                     return {segmentations_and_poses: {image_data, options, time_stamp, multi_person}};
                                 },
                                 (message) => {
@@ -2000,7 +2138,8 @@ xhr.send();
     // the following are the ecraft2learn functions available via this library
 
     return {
-      inside_snap: inside_snap, // determine if this is still needed
+      inside_snap,
+      get_snap_ide, // this too
       url_for_collaboration: function () {
           return ecraft2learn.together_URL;
       },
@@ -2030,6 +2169,7 @@ xhr.send();
           // calls callback with the contents of the 'url' unless an error occurs and then error_callback is called
           // ironically this is the rare function that may be useful when there is no Internet connection
           // since it can be used to communicate with localhost (e.g. to read/write Raspberry Pi or Arduino pins)
+          url = relative_to_absolute_url(url);
           var xhr = new XMLHttpRequest();
           record_callbacks(callback, error_callback);
           xhr.open('GET', url);
@@ -2163,7 +2303,7 @@ xhr.send();
               }
               invoke_callback(all_results_callback, javascript_to_snap(results));
           };
-          var handle_all_confidence_values = function (event) {
+          const handle_all_confidence_values = function (event) {
               var confidences = [];
               var result = event.results[event.resultIndex];
               for (var i = 0; i < result.length; i++) {
@@ -2171,12 +2311,21 @@ xhr.send();
               }
               invoke_callback(all_confidence_values_callback, javascript_to_snap(confidences));
           };
-          let handle_error = function (event) {
-              invoke_callback(error_callback, event.error);
+          const handle_error = function (event) {
+              // pass original message along in case a program wants to respond to each one.
+              invoke_callback(error_callback, improve_error_message(event.error), event.error);
               ecraft2learn.stop_speech_recognition();
               if (debugging) {
                   console.log("Recognition error: " + event.error);
               }
+          };
+          const improve_error_message = (message) => {
+              if (message === 'audio-capture') {
+                  return "Unable to access the microphone. Perhaps another program is using it or permission has not been granted.";
+              } else if (message === 'no-speech') {
+                  return "No speech heard for a while.";
+              }
+              return message;
           };
           var speech_recognition_stopped = false; // used to suspend listening when tab is hidden
           var speech_recognition;
@@ -2842,18 +2991,18 @@ xhr.send();
       window.open((relative_to_absolute_url(url)), "_blank");
   },
   re_open_full_window: () => {
-      const project_path = window.frameElement ? window.frameElement.getAttribute('project_path') : window.location.href;
-      const project_name = window.frameElement ? project_path && project_path.substring(project_path.lastIndexOf('/')+1).slice(0, -4) : // remove .xml
-                           new URLSearchParams(window.location.search).get('project');
-      if (project_name) {
-          let url = project_path.substring(0, project_path.indexOf("/ai/")+4) + "snap/snap.html?project=" + project_name + "&noRun&editMode";
-          if (url.indexOf(window.location.search) < 0) {
-              url += "&" + window.location.search.substring(1);
-          }
-          window.open(url, "_blank");
-      } else {
-          // report error 
-      }
+//       const project_path = window.frameElement ? window.frameElement.getAttribute('project_path') : window.location.href;
+//       const project_name = window.frameElement ? project_path && project_path.substring(project_path.lastIndexOf('/')+1).slice(0, -4) : // remove .xml
+//                            new URLSearchParams(window.location.search).get('project');
+//       if (project_name) {
+//           let url = project_path.substring(0, project_path.indexOf("/ai/")+4) + "snap/snap.html?project=" + project_name + "&noRun&editMode";
+//           if (url.indexOf(window.location.search) < 0) {
+//               url += "&" + window.location.search.substring(1);
+//           }
+//           window.open(url, "_blank");
+//       } else {
+          window.open(window.location.href, "_blank"); 
+//       }
   },
   wikipedia_domain: function () {
       if (ecraft2learn.default_language) {
@@ -2878,24 +3027,26 @@ xhr.send();
           invoke_callback(callback_for_errors, error.message);
       }
   },
-  train_using_camera: function (buckets_as_snap_list, add_to_previous_training, page_introduction, callback, together, together_url) {
+  train_using_camera: function (buckets_as_snap_list, add_to_previous_training, page_introduction, callback, together, together_url, no_display_of_support_window) {
       train({source: 'training using camera', 
-             buckets_as_snap_list: buckets_as_snap_list, 
-             add_to_previous_training: add_to_previous_training,
-             page_introduction: page_introduction,
-             callback: callback,
-             together: together,
-             together_url: together_url});
+             buckets_as_snap_list, 
+             add_to_previous_training,
+             page_introduction,
+             callback,
+             together,
+             together_url,
+             no_display_of_support_window});
   },
-  train_using_images: function (buckets_as_snap_list, add_to_previous_training, page_introduction, callback, together, together_url) {
+  train_using_images: function (buckets_as_snap_list, add_to_previous_training, page_introduction, callback, together, together_url, no_display_of_support_window) {
       // old name kept for backwards compatibility
       train({source: 'training using camera', 
-             buckets_as_snap_list: buckets_as_snap_list, 
-             add_to_previous_training: add_to_previous_training,
-             page_introduction: page_introduction,
-             callback: callback,
-             together: together,
-             together_url: together_url});
+             buckets_as_snap_list, 
+             add_to_previous_training,
+             page_introduction,
+             callback,
+             together,
+             together_url,
+             no_display_of_support_window});
   },
   tensorflow_train_using_microphone: function (buckets_as_snap_list, add_to_previous_training, page_introduction, callback, training_name) {
       train({source: 'training using microphone', 
@@ -2945,16 +3096,18 @@ xhr.send();
           return;
       }
       record_callbacks(callback);
-      costume_to_image(costume,
-                       function (image) {
-                           support_window_request("You need to train the system before using 'Image label confidences'.\n" +
-                                                  "Run the 'Add costume ...' block before this.", 
-                                                  (image_URL) => {return {predict: image_URL}},
-                                                  TRAINING_IMAGE_WIDTH,
-                                                  TRAINING_IMAGE_HEIGHT,
-                                                  image);
-                            window.addEventListener("message", receive_confidences);
-                        });                            
+      ecraft2learn.support_window['training using camera'].postMessage({predict: get_costume_data(costume)}, "*");
+      window.addEventListener("message", receive_confidences);
+//       costume_to_image(costume,
+//                        function (image) {
+//                            support_window_request("You need to train the system before using 'Image label confidences'.\n" +
+//                                                   "Run the 'Add costume ...' block before this.", 
+//                                                   (image_URL) => {return {predict: image_URL}},
+//                                                   TRAINING_IMAGE_WIDTH,
+//                                                   TRAINING_IMAGE_HEIGHT,
+//                                                   image);
+//                             window.addEventListener("message", receive_confidences);
+//                         });                            
   },
   microphone_confidences: function (builtin_recognizer, callback) {
       let receive_confidences = function (event) {
@@ -3021,6 +3174,10 @@ xhr.send();
       if (ecraft2learn.support_window['training using microphone']) {
           ecraft2learn.support_window['training using microphone'].postMessage('stop_recognising', "*");
       }
+      if (typeof ecraft2learn.listening_model !== 'undefined') {
+          ecraft2learn.listening_model.stopListening();
+          ecraft2learn.listening_model = undefined;
+      }
   },
   add_image_to_training: function (costume_or_costume_number, label, callback, sprite) {
       // costume_number supported for backwards compatibility
@@ -3035,20 +3192,25 @@ xhr.send();
                     costume_or_costume_number :
                     costume_of_sprite(costume_or_costume_number, sprite);
       record_callbacks(callback);
-      costume_to_image(costume,
-                       function (image) {
-                           support_window_request("You need to start training before using 'Add image to training'.\n" +
-                                                   "Run 'Train using camera ...' before this " +
-                                                   " so the system knows the list of possible labels.", 
-                                                   function (image_URL) {
-                                                       return {train: image_URL,
-                                                               label: label};
-                                                   },
-                                                   TRAINING_IMAGE_WIDTH,
-                                                   TRAINING_IMAGE_HEIGHT,
-                                                   image);
-                            window.addEventListener("message", receive_comfirmation);
-                       });
+      ecraft2learn.support_window['training using camera'].postMessage({train: get_costume_data(costume),
+                                                                        label: label},
+                                                                       "*");
+      window.addEventListener("message", receive_comfirmation);
+//       costume_to_image(costume,
+//                        function (image) {
+//                            support_window_request("You need to start training before using 'Add image to training'.\n" +
+//                                                    "Run 'Train using camera ...' or " +
+//                                                    "'Prepare to train images with these labels ...' before running this " +
+//                                                    " so the system knows the list of possible labels.", 
+//                                                    function (image_URL) {
+//                                                        return {train: image_URL,
+//                                                                label: label};
+//                                                    },
+//                                                    TRAINING_IMAGE_WIDTH,
+//                                                    TRAINING_IMAGE_HEIGHT,
+//                                                    image);
+//                             window.addEventListener("message", receive_comfirmation);
+//                        });
   },
   costume_count: function (sprite) {
       return get_costumes(sprite).length;
@@ -3178,6 +3340,8 @@ xhr.send();
   is_model_ready_for_prediction,
   predictions_from_model,
   load_tensorflow_model_from_URL,
+  get_prediction_from_teachable_machine_image_or_pose_model,
+  get_prediction_from_teachable_machine_audio_model,
   load_data_from_URL,
   optimize_hyperparameters,
   replace_with_best_model,
@@ -3190,6 +3354,7 @@ xhr.send();
   snap_to_javascript,
   javascript_to_snap,
   relative_to_absolute_url,
+  load_script,
   load_camera_training_from_file: (callback) => {
       load_transfer_training_from_file('camera', callback);
   },
@@ -3374,7 +3539,8 @@ xhr.send();
       // using tf.tidy instead of explicitly disposing of tensors caused Snap! to repeated call this
       target_tensor.dispose();
       cosines_tensor.dispose();
-      const cosines = new Array(...cosines_float32);
+      // some old browsers don't support the ... syntax
+      const cosines = Array.prototype.slice.call(cosines_float32); // new Array(...cosines_float32);
       const words_and_cosines = cosines.map((cosine, index) => [words[index], cosine]);
       const sorted_words_and_cosines = words_and_cosines.sort((a, b) => a[1]-b[1]); 
       if (distances_too) {
@@ -3514,6 +3680,26 @@ xhr.send();
   training_buckets: {},
   snap_project_opened: false,
 }} ());
+if (window !== window.parent && ecraft2learn.inside_snap()) {
+    const when_loaded = () => {
+       // morphic.js does this.keyboardHandler.focus();
+       // which breaks iframes the following dummies it out
+       const dummy_next_step = () => {
+           // keep the dummy version there
+           world.onNextStep = dummy_next_step;
+       };
+       world.onNextStep = dummy_next_step;
+       const keyboard_element = document.getElementById('morphic_keyboard');
+       if (keyboard_element) {
+           keyboard_element.focus();
+       }      
+    };
+    if (typeof world === 'undefined') {
+        window.addEventListener('load', when_loaded);
+    } else {
+        when_loaded();
+    }
+}
 window.speechSynthesis.getVoices(); // to avoid a possible long wait while voices are loaded
 ecraft2learn.chrome_languages =
 [

@@ -188,6 +188,28 @@ window.addEventListener(
              }
              element.setAttribute('href', url + (new_search || "") + (new_hash || ""));
          };
+         const table_of_contents_div = document.getElementById('table-of-contents');
+         if (table_of_contents_div) {
+             const p = document.createElement('p');
+             p.classList.add('table-of-contents-title');
+             p.innerHTML = 'Contents';
+             table_of_contents_div.appendChild(p);
+             const ul = document.createElement('ul');
+             table_of_contents_div.appendChild(ul);
+             const add_to_table_of_contents = (h4) => {
+                 const id = h4.id;
+                 if (id) {
+                     const li = document.createElement('li');
+                     const a = document.createElement('a');
+                     a.href = '#' + id;
+                     a.innerHTML = h4.innerHTML;
+                     li.appendChild(a);
+                     ul.appendChild(li);
+                 };
+             };
+             Array.prototype.forEach.call(document.getElementsByTagName('h3'), add_to_table_of_contents);
+             Array.prototype.forEach.call(document.getElementsByTagName('h4'), add_to_table_of_contents);
+         }
          Array.prototype.forEach.call(elements, add_search_and_hash);
          Array.prototype.forEach.call(document.getElementsByTagName('a'), add_search_and_hash);
 });
@@ -233,7 +255,8 @@ window.addEventListener(
              let name = element.id;
              let style = element.getAttribute('container_style');
              let caption = element.getAttribute('caption');
-             let full_screen = element.getAttribute('full_screen');
+             let run_full_screen = element.getAttribute('run_full_screen');
+             let full_screen = run_full_screen || element.getAttribute('full_screen');
              let edit_mode = element.getAttribute('edit_mode');
              let stage_ratio = element.getAttribute('stage_ratio');
              let figure     = document.getElementById(name);
@@ -260,11 +283,17 @@ window.addEventListener(
                  if (new URLSearchParams(search).has('log')) {
                      search += "&assignment=" + name;
                  }
-                 if (snap_url) {
-                     iframe.src = snap_url + search + window.location.hash;
-                 } else {
-                     iframe.src = path_to_ai_folder + "/ai/snap/snap.html" + search + window.location.hash;      
+                 const local_web_server = 
+                      window.location.protocol == 'file:' || 
+                      window.location.hostname  === 'localhost' ||
+                      window.location.hostname  === '127.0.0.1';
+                 let iframe_src = local_web_server ? 
+                                  window.location.origin + "/ai/snap/snap.html?project=" + name + search + window.location.hash : 
+                                  "https://snap.berkeley.edu/snap/snap.html#present:Username=toontalk&ProjectName=" + name + search;                
+                 if (full_screen !== 'true') {
+                     iframe_src += "&editMode";
                  }
+                 iframe.src = iframe_src;
                  iframe.setAttribute('scrolling', 'no');
                  // remove loading message 1 second after Snap! loads
                  // since project loading takes time too
@@ -296,7 +325,21 @@ window.addEventListener(
                      }
                      let div = document.createElement('div');
                      div.className = "iframe-container";
+                     const zoom = +(localStorage && localStorage['-snap-setting-zoom']);
                      div.style = style;
+                     if (zoom > 1) {
+                         // need to adjust width and height for zoom
+                         const multiply = (measure, factor) => {
+                             if (+measure > 0) {
+                                  return +measure * factor;
+                             }
+                             const number = +measure.match(/\d+/g)[0];
+                             const units = measure.match(/[a-zA-Z]+/g)[0];
+                             return number * zoom + units;
+                         };
+                         div.style.width = multiply(div.style.width, zoom);
+                         div.style.height = multiply(div.style.height, zoom);
+                     }
                      div.appendChild(iframe);
                      figure.insertBefore(div, figcaption);
                  }
@@ -313,7 +356,3 @@ window.addEventListener(
          }
          Array.prototype.forEach.call(elements, snap_iframe);
      });
-
-
- 
-

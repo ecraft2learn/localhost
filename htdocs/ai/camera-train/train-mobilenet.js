@@ -105,36 +105,38 @@ const load_image = function (image_url, callback) {
     };
 };
 
-const image_url_to_features_vector = function (image_url, time_stamp, post_to_tab) {
-    load_image(image_url,
-               async function (image) {
-                   logits = await infer(image);
-                   post_to_tab.postMessage({image_features: classifier.normalizeVectorToUnitLength(logits).dataSync(),
-                                            time_stamp: time_stamp},
-                                           '*');
-               });
+const image_data_to_features_vector = async (image_data, time_stamp, post_to_tab) => {
+    logits = await infer(image_data);
+    post_to_tab.postMessage({image_features: classifier.normalizeVectorToUnitLength(logits).dataSync(),
+                             time_stamp: time_stamp},
+                            '*');
 };
 
-const add_image_to_training = function (image_url, label_index, post_to_tab) {
-    load_image(image_url,
-               function (image) {
-                   logits = infer(image);
-                   // Add current image to classifier
-                   classifier.addExample(logits, label_index);
-                   logits.dispose();
-                   if (post_to_tab) {
-                       let response = classifier.getClassExampleCount()[label_index];
-                       post_to_tab.postMessage({confirmation: response}, "*");
-                   }         
-    });
+const add_image_to_training = function (image_url_or_data, label_index, post_to_tab) {
+    const add_example = (logits, label_index, post_to_tab) => {
+        // Add current image to classifier
+        classifier.addExample(logits, label_index);
+        logits.dispose();
+        if (post_to_tab) {
+            let response = classifier.getClassExampleCount()[label_index];
+            post_to_tab.postMessage({confirmation: response}, "*");
+        }  
+    };
+    if (typeof image_url_or_data === 'string') {
+        load_image(image_url_or_data,
+                   (image) => {
+                       const logits = infer(image);
+                       add_example(logits, label_index, post_to_tab);
+                   });
+    } else {
+        const logits = infer(image_url_or_data);
+        add_example(logits, label_index, post_to_tab);
+    }
 };
 
 // 'conv_preds' is the logits activation of MobileNet.
 
 const infer = (image) => {
-    if (!mobilenet_model) {
-        load_mobilenet();
-    }
     return mobilenet_model.infer(image, 'conv_preds');
 };
 
@@ -218,9 +220,9 @@ const set_class_names = function (class_names) {
     }
 };
 
-const load_mobilenet = async function () {
+const load_mobilenet = (when) => {
     classifier = knnClassifier.create();
-    mobilenet_model = await mobilenet.load({version: 2, alpha: 1}); 
+    mobilenet.load({version: 2, alpha: 1}).then(when); 
 };
 
 /**
@@ -232,11 +234,6 @@ const initialise_page = async function (incoming_training_class_names, source) {
 
   document.getElementById('main').style.display = 'block';
 
-// Setup the GUI
-//   setupGui();
-//   setupFPS();
-
-  // Setup the camera
   try {
     video = await setupCamera();
     video.play();
@@ -253,12 +250,23 @@ const initialise_page = async function (incoming_training_class_names, source) {
     info.style.display = 'block';
     throw e;
   }
-  start();
-  if (mobilenet_model) {
-      // fully initialised
-      source.postMessage("Ready", "*");
-  }
-}
+//   load_mobilenet((model) => {
+//       mobilenet_model = model;
+//       window.parent.postMessage('MobileNet loaded', "*");
+//       if (training_class_names) {
+//           // fully initialised 
+//           window.parent.postMessage('Ready', "*");
+//       }
+//       // following used to use addEventListener but Snap!'s drop listener interfered
+//       // ecraft2learn.support_iframe['training using camera']
+//     //                             window.parent.document.body.ondrop = receive_drop;
+//       if (TOGETHER_JS) {
+//           collaborate();
+//       }
+//       start();
+//       source.postMessage("Ready", "*");
+//    });
+};
 
 // const receive_drop = function (event) {
 //   // following based on https://developer.mozilla.org/en-US/docs/Web/API/HTML_Drag_and_Drop_API/File_drag_and_drop
@@ -296,7 +304,7 @@ function start() {
     create_save_training_button('camera',
                                 () => classifier.getClassifierDataset(),
                                 () => training_class_names);
-    create_return_to_snap_button();
+//     create_return_to_snap_button();
     let please_wait = document.getElementById("please-wait");
     if (please_wait) {
         please_wait.remove(); // remove it if not already removed
@@ -320,12 +328,19 @@ function restart() {
     stopped = false;
     // video may be undefined because it is being created
     if (!timer && video) {
-        video.play();
-        timer = requestAnimationFrame(animate);
+        if (info_texts.length === 0) {
+            // could happen if training data loaded from file or URL
+            start();
+        } else {
+            video.play();
+            timer = requestAnimationFrame(animate);         
+        }
     }
 }
 
 navigator.getUserMedia = navigator.getUserMedia || navigator.webkitGetUserMedia || navigator.mozGetUserMedia;
+
+const get_image_data = (canvas) => canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
 
 // listen for requests for predictions
 
@@ -355,23 +370,29 @@ const listen_for_messages = function (event) {
                                       "*");
             return;
         }
-        let image_url = event.data.predict;
-        load_image(image_url,
-                   function (image) {
-                       let canvas = create_canvas();
-                       copy_video_to_canvas(image, canvas);
-                       let image_as_tensor = tf.browser.fromPixels(canvas);
-                       logits = infer(image_as_tensor);
-                       classifier.predictClass(logits, TOPK).then(
-                           (results) => {
-                               event.source.postMessage({confidences: Object.values(results.confidences)}, "*");
-                               image_as_tensor.dispose();
-                               logits.dispose();
-                           },
-                           (error) => {
-                               event.source.postMessage({error: error.message}, "*");
-                           });
-        });
+        const predict = (logits) => {
+            classifier.predictClass(logits, TOPK).then(
+                (results) => {
+                    event.source.postMessage({confidences: Object.values(results.confidences)}, "*");
+                    logits.dispose();
+                 },
+                 (error) => {
+                     event.source.postMessage({error: error.message}, "*");
+                 });
+        }
+        let image_url_or_data = event.data.predict;
+        if (typeof image_url_or_data === 'string') {
+            load_image(image_url_or_data,
+                       (image) => {
+                           const canvas = create_canvas();
+                           copy_video_to_canvas(image, canvas);
+//                            const image_as_tensor = tf.browser.fromPixels(canvas);
+                           predict(infer(get_image_data(canvas))); 
+//                            image_as_tensor.dispose();      
+            });
+        } else {
+            predict(infer(image_url_or_data));
+        }
     } else if (typeof event.data.train !== 'undefined') {
         let image_url = event.data.train;
         let label_index = training_class_names.indexOf(event.data.label);
@@ -388,7 +409,7 @@ const listen_for_messages = function (event) {
             add_image_to_training(image_url, label_index, event.source);
          }
     } else if (typeof event.data.get_image_features !== 'undefined') {
-        image_url_to_features_vector(event.data.get_image_features.URL, 
+        image_data_to_features_vector(event.data.get_image_features.image_data, 
                                      event.data.get_image_features.time_stamp,
                                      event.source);
     } else if (event.data === 'stop') {
@@ -397,7 +418,11 @@ const listen_for_messages = function (event) {
         restart();   
     } else if (typeof event.data.training_class_names !== 'undefined') {
         // receive class names
-        initialise_page(event.data.training_class_names, event.source);
+        if (event.data.no_display_of_support_window) {
+            set_class_names(event.data.training_class_names);
+        } else {
+            initialise_page(event.data.training_class_names, event.source).then(start);
+        }
     } else if (typeof event.data.new_introduction !== 'undefined') {
         // update HTML of the page with custom introduction
         update_introduction(event.data.new_introduction);
@@ -407,9 +432,16 @@ const listen_for_messages = function (event) {
             if (data_set.labels) {
                 if (training_class_names) {
                     set_class_names(data_set.labels);
+                    // fully initialised 
+//                  window.parent.postMessage('Ready', "*");
                 } else {
                     initialise_page(data_set.labels, event.source);
                 }
+                if (TOGETHER_JS) {
+                    collaborate();
+                }
+//                 start();
+                window.parent.postMessage("Ready", "*");
             }
             if (data_set.html) {
                 let introduction = decodeURIComponent(data_set.html);
@@ -423,94 +455,90 @@ const listen_for_messages = function (event) {
     }
 };
 
+const collaborate = () => {
+  // for production add window.TogetherJSConfig_ignoreMessages = true;
+    TogetherJSConfig_dontShowClicks = true;
+    // following made the interface less confusing but didn't invite the other either
+//                              TogetherJSConfig_suppressInvite = true;
+    let script = document.createElement('script');
+    script.src = "https://togetherjs.com/togetherjs-min.js";
+    let add_together_listeners = function () {
+        let send_labels =
+            function (message) {
+                if (!message.sameUrl) {
+                    return;
+                }
+                TogetherJS.send({type: 'training_labels',
+                                 labels: training_class_names});
+            };
+        let remove_button =
+            function () {
+                let collaboration_button = document.getElementById('collaboration_button');
+                if (collaboration_button) {
+                    collaboration_button.style.display = 'none';
+                }                    
+             };
+        let share_together_url = 
+            function() {
+                if (window.opener) {
+                    window.opener.postMessage({together_url: TogetherJS.shareUrl()}, "*");
+                }
+            };
+        let receive_labels = 
+            function (message) {
+                if (!timer) {
+                   initialise_page(message.labels, event.source);
+                }   
+            };
+        let receive_image_url =
+            function (message) {
+                add_image_to_training(message.image_url,
+                                      message.label_index);
+            };
+        TogetherJS.hub.on("togetherjs.hello",           send_labels);
+        TogetherJS.hub.on('togetherjs.hello-back',      remove_button);
+        TogetherJS.hub.on('togetherjs.init-connection', share_together_url);
+        TogetherJS.hub.on('training_labels',            receive_labels);
+        TogetherJS.hub.on('add_image_to_training',      receive_image_url);
+//         toggle_together_js(); // somehow this caused messages to be received twice
+    }
+    script.addEventListener('load', add_together_listeners);
+    document.head.appendChild(script);
+    let collaboration_button = document.createElement('button');
+    let running = typeof TogetherJS !== 'undefined' && TogetherJS.running;
+    let label_collaboration_button = function () {
+        if (running) {
+            collaboration_button.innerHTML = "Stop collaborating";
+        } else {
+            collaboration_button.innerHTML = "Get URL for collaboration";
+        }
+    };
+    label_collaboration_button();
+    collaboration_button.id = 'collaboration_button';
+    collaboration_button.className = "together_button";
+    let toggle_together_js = function () {
+        TogetherJS(collaboration_button);
+        running = !running;
+        label_collaboration_button();
+    }
+    collaboration_button.title = 
+        "Clicking this will turn on or off collaborative training with others.";
+    collaboration_button.addEventListener('click',      toggle_together_js);
+    collaboration_button.addEventListener('touchstart', toggle_together_js);
+    document.body.insertBefore(collaboration_button, document.body.firstChild);
+};
+
 window.addEventListener('message', listen_for_messages, false);
 // tell Snap! this is loaded
 window.addEventListener('DOMContentLoaded',
-                        async function (event) {
-                            if (window.opener) {
-                                // if collaboratively training only one has a Snap! window (just now)
-                                window.opener.postMessage("Loaded", "*");
-                            }
-                            await load_mobilenet();
-                            window.parent.postMessage('MobileNet loaded', "*");
-                            if (training_class_names) {
-                                // fully initialised 
-                                window.parent.postMessage('Ready', "*");
-                            }
-                            // following used to use addEventListener but Snap!'s drop listener interfered
-                            // ecraft2learn.support_iframe['training using camera']
-//                             window.parent.document.body.ondrop = receive_drop;
-                            if (TOGETHER_JS) {
-                                // for production add window.TogetherJSConfig_ignoreMessages = true;
-                                TogetherJSConfig_dontShowClicks = true;
-                                // following made the interface less confusing but didn't invite the other either
-//                              TogetherJSConfig_suppressInvite = true;
-                                let script = document.createElement('script');
-                                script.src = "https://togetherjs.com/togetherjs-min.js";
-                                let add_together_listeners = function () {
-                                    let send_labels =
-                                        function (message) {
-                                            if (!message.sameUrl) {
-                                                return;
-                                            }
-                                            TogetherJS.send({type: 'training_labels',
-                                                             labels: training_class_names});
-                                        };
-                                    let remove_button =
-                                        function () {
-                                            let collaboration_button = document.getElementById('collaboration_button');
-                                            if (collaboration_button) {
-                                                collaboration_button.style.display = 'none';
-                                            }                                                
-                                         };
-                                    let share_together_url = 
-                                        function() {
-                                            if (window.opener) {
-                                                window.opener.postMessage({together_url: TogetherJS.shareUrl()}, "*");
-                                            }
-                                        };
-                                    let receive_labels = 
-                                        function (message) {
-                                            if (!timer) {
-                                               initialise_page(message.labels, event.source);
-                                            }   
-                                        };
-                                    let receive_image_url =
-                                        function (message) {
-                                            add_image_to_training(message.image_url,
-                                                                  message.label_index);
-                                        };
-                                    TogetherJS.hub.on("togetherjs.hello",           send_labels);
-                                    TogetherJS.hub.on('togetherjs.hello-back',      remove_button);
-                                    TogetherJS.hub.on('togetherjs.init-connection', share_together_url);
-                                    TogetherJS.hub.on('training_labels',            receive_labels);
-                                    TogetherJS.hub.on('add_image_to_training',      receive_image_url);
-//                                     toggle_together_js(); // somehow this caused messages to be received twice
+                        (event) => {
+                            load_mobilenet((model) => {
+                                mobilenet_model = model;
+                                window.parent.postMessage('MobileNet loaded', "*");
+                                if (window.opener) {
+                                    // if collaboratively training only one has a Snap! window (just now)
+                                    window.opener.postMessage("Loaded", "*");
                                 }
-                                script.addEventListener('load', add_together_listeners);
-                                document.head.appendChild(script);
-                                let collaboration_button = document.createElement('button');
-                                let running = typeof TogetherJS !== 'undefined' && TogetherJS.running;
-                                let label_collaboration_button = function () {
-                                    if (running) {
-                                        collaboration_button.innerHTML = "Stop collaborating";
-                                    } else {
-                                        collaboration_button.innerHTML = "Get URL for collaboration";
-                                    }
-                                };
-                                label_collaboration_button();
-                                collaboration_button.id = 'collaboration_button';
-                                collaboration_button.className = "together_button";
-                                let toggle_together_js = function () {
-                                    TogetherJS(collaboration_button);
-                                    running = !running;
-                                    label_collaboration_button();
-                                }
-                                collaboration_button.title = 
-                                    "Clicking this will turn on or off collaborative training with others.";
-                                collaboration_button.addEventListener('click',      toggle_together_js);
-                                collaboration_button.addEventListener('touchstart', toggle_together_js);
-                                document.body.insertBefore(collaboration_button, document.body.firstChild);
-                            }
+                            });
                         },
                         false);
