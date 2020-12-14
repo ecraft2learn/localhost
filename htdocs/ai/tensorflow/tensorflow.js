@@ -40,16 +40,19 @@ const get_data = (model_name, kind) => {
     }
     return data[model_name][kind];
 };
-const set_data = (model_name, kind, value, callback) => {
+const set_data = (model_name, kind, value, callback, permitted_labels) => {
     if (!data.hasOwnProperty(model_name)) {
         data[model_name] = {};
     }
     if (value.hasOwnProperty('output')) {
         if (value.output.length > 0 && isNaN(+value.output[0])) {
             // values might be strings that represent numbers - only non-numeric strings can be category labels
-            let labels;
-            [value.output, labels] = to_one_hot(value.output, data[model_name].categories);
+            let labels, class_weights;
+            [value, labels, class_weights] = to_one_hot_and_removed_data_with_unknown_output_labels(value, permitted_labels, kind==='training');
             data[model_name].categories = labels;
+            if (kind ==='training') {
+                data[model_name].class_weights = class_weights;
+            }
             if (model_name === 'all models') {
                 // recreate all models with for example softmax and one-hot created before this data was available
                 Object.keys(data).forEach((name) => {
@@ -77,14 +80,23 @@ const set_data = (model_name, kind, value, callback) => {
     }
     invoke_callback(callback);
 };
+const reset_all = () => {
+    data = {};
+    models = {};
+    model = undefined;
+};
 
-const to_one_hot = (labels, current_labels) => {
-    const unique_labels = current_labels || [];
-    labels.forEach((label) => {
-        if (unique_labels.indexOf(label) < 0) {
-            unique_labels.push(label);
-        }
-    });
+const to_one_hot_and_removed_data_with_unknown_output_labels = (input_and_output, permitted_labels, need_class_weights) => {
+    const unique_labels = permitted_labels || [];
+    const labels = input_and_output.output;
+    const original_input = input_and_output.input;
+    if (unique_labels.length === 0) {
+        labels.forEach((label) => {
+            if (unique_labels.indexOf(label) < 0) {
+                unique_labels.push(label);
+            }
+        });
+    }
     const one_hot = (index, n) => {
         let vector = [];
         for (let i = 0; i < n; i++) {
@@ -92,9 +104,31 @@ const to_one_hot = (labels, current_labels) => {
         }
         return vector;
     };
-    const one_hot_labels =
-        labels.map((label) => one_hot(unique_labels.indexOf(label), unique_labels.length));
-    return [one_hot_labels, unique_labels];
+    const new_input = [];
+    const new_output = [];
+    const counts = {};
+    labels.forEach((label, index) => {
+        if (need_class_weights) {
+            if (counts[label]) {
+                counts[label] = counts[label]+1;
+            } else {
+                counts[label] = 1;
+            }
+        }
+        const label_index = unique_labels.indexOf(label);
+        if (label_index >= 0) {
+            new_input.push(original_input[index]);
+            new_output.push(one_hot(label_index, unique_labels.length))
+        } // otherwise skip if output label not permitted 
+    });
+    let class_weights = [];
+    if (need_class_weights) {
+        const mean = labels.length/unique_labels.length;
+        unique_labels.forEach(label => {
+            class_weights.push(mean/counts[label]);
+        });        
+    }
+    return [{input: new_input, output: new_output}, unique_labels, class_weights];
 };
 
 const optimization_methods =
@@ -315,8 +349,8 @@ const display_trial_results = (trial) => {
         return;
     }
     const results = trial.result.results;
-    const loss = metrics_of_highest_score.average_loss;;
-    const accuracy = metrics_of_highest_score.average_accuracy;
+    const loss = metrics_of_highest_score && metrics_of_highest_score.average_loss;
+    const accuracy = metrics_of_highest_score && metrics_of_highest_score.average_accuracy;
     let message = "";
     const best_score = score >= highest_score;
     const best_loss = loss <= lowest_loss;
@@ -334,24 +368,26 @@ const display_trial_results = (trial) => {
         message = "<b>Best so far.<br>";
     }
     message += "Score = " + shorter_number(score);
-    if (results.samples && results.samples.length > 1) {
-        message += " (" + shorter_number(metrics_of_highest_score.score_standard_deviation) + " s.d.)";
-    }
     const add_samples = (kind) => {
         if (results.samples && results.samples.length > 1) {
             message += "<br>(";
+            const values = [];
             results.samples.forEach((sample) => {
                 message += shorter_number(sample[kind]) + ", ";
+                values.push(sample[kind]);
             });
+            message += "Std Dev " + shorter_number(standard_deviation(values));
             message += ")";
         }
     };        
     add_samples('score');
     message += "<br>Loss = " + loss; // toFixed may end up displaying 0 if small enough
+    message += "<br>Lowest loss epoch = " + results['Lowest validation loss epoch'];
     add_samples('loss');
     if (accuracy) {
         message += "<br>Accuracy = " + shorter_number(accuracy);
         add_samples('accuracy');
+        message += "<br>Highest accuracy epoch = " + results['Highest accuracy epoch'];
     }
     if (best_score) {
         message += "</b>";
@@ -360,14 +396,17 @@ const display_trial_results = (trial) => {
 };
 
 const optimize_hyperparameters_with_parameters = (draw_area, model) => {
+    // this uses parameters from the GUI to guide the search 
     draw_area.appendChild(optimize_hyperparameters_messages);
     const name_element = document.getElementById('name_element');
-    const model_name = name_element ? name_element.value : model ? model.name : 'my-model';
-    const categories = get_data(model_name, 'categories');
+    const options = {};
+    options.model_name = name_element ? name_element.value : model ? model.name : 'my-model';
+    options.categories = get_data(model_name, 'categories');
     const [xs, ys] = get_tensors(model_name, 'training');
     let validation_tensors = get_tensors(model_name, 'validation'); // undefined if no validation data
-    let epochs = gui_state["Training"]["Number of iterations"];
-    let onExperimentBegin = (i, trial) => {
+    const test_tensors = get_tensors(model_name, 'test');
+    options.epochs = gui_state["Training"]["Number of iterations"];
+    options.onExperimentBegin = (i, trial) => {
         if (stop_on_next_experiment) {
             stop_on_next_experiment = false;
             hyperparameter_searching = false;
@@ -377,7 +416,7 @@ const optimize_hyperparameters_with_parameters = (draw_area, model) => {
         optimize_hyperparameters_messages.innerHTML += "<br><br>Experiment " + (i+1) + ":<br>";
         display_trial(trial.args, optimize_hyperparameters_messages);
     };
-    const onExperimentEnd = (i, trial) => {
+    options.onExperimentEnd = (i, trial) => {
         display_trial_results(trial);
     };
     const error_handler = (error) => {
@@ -387,13 +426,11 @@ const optimize_hyperparameters_with_parameters = (draw_area, model) => {
         hyperparameter_searching = false;
         stop_on_next_experiment = false;
     };
-    const number_of_experiments = Math.round(gui_state["Optimize"]["Number of experiments"]);
-    const number_of_samples = Math.round(gui_state["Optimize"]["Number of samples"]);
-    const what_to_optimize = search_descriptions.map(description => gui_state["Optimize"][description]);
-    const scoring_weights = weight_descriptions.map(description => gui_state["Optimize"][description]);
-    optimize(model_name, xs, ys, validation_tensors, number_of_experiments, epochs, 
-             onExperimentBegin, onExperimentEnd, error_handler, 
-             what_to_optimize, scoring_weights, number_of_samples)
+    options.number_of_experiments = Math.round(gui_state["Optimize"]["Number of experiments"]);
+    options.number_of_samples = Math.round(gui_state["Optimize"]["Number of samples"]);
+    options.what_to_optimize = search_descriptions.map(description => gui_state["Optimize"][description]);
+    options.scoring_weights = weight_descriptions.map(description => gui_state["Optimize"][description]);
+    optimize(options, xs, ys, validation_tensors, test_tensors)
         .then((result) => {
             if (!result) {
                 // error has been handled
@@ -411,13 +448,15 @@ const optimize_hyperparameters_with_parameters = (draw_area, model) => {
                 const model_name = best_model.name;
                 const average_text = number_of_samples > 1 ? 'Average ' : '';
                 install_settings_button.innerHTML = 
-                    "Click to set '" + model_name + "' to best one found (" +
+                    metrics_of_highest_score ?
+                    ("Click to set '" + model_name + "' to best one found (" +
                     average_text + "Loss = " + 
                     shorter_number(metrics_of_highest_score.average_loss) +
                     (typeof metrics_of_highest_score.average_accuracy === 'undefined' ? 
                         "" : "; " + average_text + "Accuracy = " + 
                     shorter_number(metrics_of_highest_score.average_accuracy)) + 
-                    ")<br>";
+                    ")<br>") :
+                    "Highest score not yet defined.";
                 display_trial(result.argmin, install_settings_button);
                 const settings = result.argmin;
                 settings.model_name = model_name;
@@ -507,34 +546,32 @@ const inverse_lookup = (value, table) => {
 
 let previous_model;
 
-const optimize_hyperparameters = (model_name, number_of_experiments, epochs,
-                                  experiment_end_callback, success_callback, error_callback,
-                                  what_to_optimize,
-                                  scoring_weights,
-                                  number_of_samples) => {
+const optimize_hyperparameters = (options) => {
    // this is meant to be called when messages are received from a client page (e.g. Snap!)
+   const {model_name, epochs, experiment_end_callback, success_callback, error_callback} = options;
    record_callbacks(success_callback, error_callback);
    create_hyperparameter_optimization_tab(model, true);
-   const experiment_begin_callback = (i, trial) => {
+   options.onExperimentBegin = (i, trial) => {
         optimize_hyperparameters_messages.innerHTML += "<br><br>Experiment " + (i+1) + ":<br>";
         display_trial(trial.args, optimize_hyperparameters_messages);
    };
-   const new_experiment_end_callback = (i, trial) => {
+   options.onExperimentEnd = (i, trial) => {
        display_trial_results(trial);
        if (experiment_end_callback) {
            experiment_end_callback(i, trial);
        }
    }
-   gui_state["Training"]["Number of iterations"] = epochs;
+   gui_state["Training"]["Number of iterations"] = epochs; // why just this one?
    try {   
        const [xs, ys] = get_tensors(model_name, 'training');
        const validation_tensors = get_tensors(model_name, 'validation'); // undefined if no validation data
-           optimize(model_name, xs, ys, validation_tensors, number_of_experiments, epochs, 
-                    experiment_begin_callback, new_experiment_end_callback, error_callback, 
-                    what_to_optimize,
-                    scoring_weights,
-                    number_of_samples)
+       const test_tensors = get_tensors(model_name, 'test');
+           optimize(xs, ys, validation_tensors, test_tensors, options)
               .then((result) => {
+                  xs.dispose();
+                  ys.dispose();
+                  tf.dispose(validation_tensors);
+                  tf.dispose(test_tensors);
                   if (result) {
                       result.best_model = best_model || previous_model; // if no best model then previous had NaN loss
                   }
@@ -580,15 +617,25 @@ const standard_deviation = (list) => {
     return Math.sqrt(variance/(list.length-1));
 };
 
-const optimize = async (model_name, xs, ys, validation_tensors, 
-                        number_of_experiments, // number of different parameters settings to explore
-                        epochs,
-                        onExperimentBegin, onExperimentEnd, error_callback,
-                        what_to_optimize,
-                        scoring_weights,
-                        number_of_samples // how many times to repeat experiments on the same parameters
-                        ) => {
-    const create_and_train_model = async ({layers, optimization_method, loss_function, epochs, learning_rate,
+let training_number = 0;
+
+const optimize = async (xs, ys, validation_tensors, test_tensors, options) => {
+    let {model_name, 
+         // not clear if the following (up to callbacks) can be replaced by initial settings of GUI
+         number_of_experiments, // number of different parameters settings to explore
+         epochs,
+         learning_rate,
+         stop_if_no_progress_for_n_epochs,
+         validation_split,
+         shuffle,
+         onExperimentBegin, onExperimentEnd, error_callback,
+         what_to_optimize,
+         scoring_weights,
+         number_of_samples, // how many times to repeat experiments on the same parameters
+         tfvis_options} = options;
+    training_number = 0;
+    best_model = undefined;
+    const create_and_train_model = async ({layers, optimization_method, loss_function, epochs, learning_rate, stop_if_no_progress_for_n_epochs,
                                            dropout_rate, validation_split, activation, shuffle}, 
                                           {xs, ys}) => {
         if (create_and_train_model.stopped_prematurely) {
@@ -612,10 +659,13 @@ const optimize = async (model_name, xs, ys, validation_tensors,
         if (!learning_rate) {
             learning_rate = gui_state["Training"]["Learning rate"];
         }
-        if (typeof dropout_rate === 'undefined') {
+        if (typeof stop_if_no_progress_for_n_epochs !== 'number') {
+            stop_if_no_progress_for_n_epochs = gui_state["Training"]["Stop if no progress for number of iterations"];
+        }
+        if (typeof dropout_rate !== 'number') {
             dropout_rate = gui_state["Model"]["Dropout rate"];
         }
-        if (typeof validation_split === 'undefined') {
+        if (typeof validation_split !== 'number') {
             validation_split = gui_state["Training"]["Validation split"];
         }
         if (typeof shuffle !== 'boolean') {
@@ -626,6 +676,8 @@ const optimize = async (model_name, xs, ys, validation_tensors,
                                  ys,
                                  xs_validation: validation_tensors && validation_tensors[0],
                                  ys_validation: validation_tensors && validation_tensors[1],
+                                 xs_test: test_tensors && test_tensors[0],
+                                 ys_test: test_tensors && test_tensors[1],
                                 };
         const make_model = () => {
             return create_model({model_name,
@@ -638,7 +690,7 @@ const optimize = async (model_name, xs, ys, validation_tensors,
                                  dropout_rate,
                                  learning_rate});            
         };
-        let model = make_model();
+        let model = make_model(); // recreate model with new parameters
         let samples_remaining = number_of_samples;
         let samples = [];
         const sample_results = 
@@ -660,11 +712,8 @@ const optimize = async (model_name, xs, ys, validation_tensors,
                     score = -loss;
                 }
                 samples.push({score, loss, accuracy, duration, size});
-                next_sample(resolve);
         };
         const next_sample = (resolve) => {
-            samples_remaining--;
-            model = make_model(); // recreate model
             train(resolve);
         };
         const final_results = 
@@ -698,7 +747,7 @@ const optimize = async (model_name, xs, ys, validation_tensors,
                     highest_score = average_score;
                     metrics_of_highest_score =
                         {average_loss, average_accuracy, average_duration, average_size, score_standard_deviation};
-                    if (best_model) {
+                    if (best_model && !best_model.disposed) {
                         best_model.dispose();
                         best_model.disposed = true;
                     }
@@ -710,17 +759,25 @@ const optimize = async (model_name, xs, ys, validation_tensors,
                          status: hpjs.STATUS_OK});
         };
         const train = (resolve) => {
+            const class_names = get_data(model_name, 'categories');
+            training_number++;
             train_model(model,
                         tensor_datasets,
                         {epochs, 
                          learning_rate,
+                         stop_if_no_progress_for_n_epochs,
                          validation_split,
-                         shuffle},
+                         shuffle,
+                         class_names,
+                         training_number,
+                         tfvis_options},
                         (results) => {
+                            samples_remaining--;
+                            sample_results(results, resolve);        
                             if (samples_remaining === 0) {
                                 final_results(results, resolve);
                             } else {
-                                sample_results(results, resolve);
+                                next_sample(resolve);
                             }
                         },
                         (error) => {
@@ -733,7 +790,9 @@ const optimize = async (model_name, xs, ys, validation_tensors,
                             }
                         });
         };
-        model.ready_for_prediction = true; // even if no training the weights have been randomly initialised
+        // even with no training the weights have been randomly initialised so
+        // models are always ready and this is only kept for backwards compabitility
+        model.ready_for_prediction = true;  
         return new Promise(train);
     };
     record_callbacks(create_and_train_model, error_callback);
@@ -770,6 +829,8 @@ const optimize = async (model_name, xs, ys, validation_tensors,
     }
     if (to_boolean(gui_state["Optimize"]["Search for best shuffle data setting"])) {
         space.shuffle = hpjs.choice([true, false]);
+    } else {
+        space.shuffle = shuffle;
     }
     if (to_boolean(gui_state["Optimize"]["Search for best number of training iterations"])) {
         const current_epochs = Math.round(gui_state["Training"]["Number of iterations"]);
@@ -778,12 +839,16 @@ const optimize = async (model_name, xs, ys, validation_tensors,
         const number_of_choices = 10;
         const increment = Math.max(1, Math.round((maximum-minimum)/number_of_choices)); 
         space.epochs = hpjs.quniform(minimum, maximum, increment);
+    } else {
+        space.epochs = epochs;
     }
     if (to_boolean(gui_state["Optimize"]["Search for best validation split"])) {
         const current_validation_split = gui_state["Training"]["Validation split"];
         const minimum = current_validation_split < .05 ? 0 : current_validation_split/2;
         const maximum = Math.min(.95, current_validation_split*1.5+.1);
         space.validation_split = hpjs.uniform(minimum, maximum);
+    } else {
+        space.validation_split = validation_split;
     }
     if (to_boolean(gui_state["Optimize"]["Search for best dropout rate"])) {
         const current_dropout_rate = gui_state["Model"]["Dropout rate"];
@@ -796,12 +861,14 @@ const optimize = async (model_name, xs, ys, validation_tensors,
         const current_learning_rate_log = Math.log(current_learning_rate);
         const number_of_choices = 10;
         space.learning_rate = hpjs.qloguniform(current_learning_rate_log-1, current_learning_rate_log+1, current_learning_rate/number_of_choices);
+    } else {
+        space.learning_rate = learning_rate;
     }
     if (to_boolean(gui_state["Optimize"]["Search for best number of layers"])) {
         const current_layers = get_layers();
         const choices = [];
         choices.push(current_layers); // unchanged
-        choices.push([Math.round(current_layers[0]*(1+Math.random()))].concat(current_layers)); // add up to 2x first layer
+        choices.push([Math.round(current_layers[current_layers.length-1]*(1+Math.random()))].concat(current_layers)); // add up to 2x last layer
         choices.push([current_layers[0]].concat(current_layers)); // add copy of first layer
         if (current_layers.length > 2) {
             choices.push(current_layers.slice(1)); // all but first
@@ -824,6 +891,7 @@ const optimize = async (model_name, xs, ys, validation_tensors,
         }));
         space.layers = hpjs.choice(choices);
     }
+    space.stop_if_no_progress_for_n_epochs = stop_if_no_progress_for_n_epochs;
     try {
         const result = await hpjs.fmin(create_and_train_model,
                                        space,
@@ -1146,6 +1214,7 @@ const train_with_parameters = async function (surface_name) {
                            learning_rate: gui_state["Training"]["Learning rate"],
                            validation_split: gui_state["Training"]["Validation split"],
                            shuffle: to_boolean(gui_state["Training"]["Shuffle data"]),
+                           class_names: categories,
                            tfvis_options: {callbacks: ['onEpochEnd'],
                                            yAxisDomain,
                                            width,
@@ -1522,17 +1591,19 @@ const receive_message =
         let message = event.data;
         if (message === 'stop') {
             stop_all();
+        } else if (message === 'reset') {
+            reset_all();
         } else if (typeof message.data !== 'undefined') {
             try {
-                const kind = message.kind;
+                const {kind, data, permitted_labels, ignore_old_dataset, time_stamp} = message;
                 const model_name = message.model_name || 'all models';
                 const callback = () => {
-                    event.source.postMessage({data_received: message.time_stamp}, "*"); 
+                    event.source.postMessage({data_received: time_stamp}, "*"); 
                 };
-                if (message.ignore_old_dataset) {
-                    set_data(model_name, kind, message.data);
+                if (ignore_old_dataset) {
+                    set_data(model_name, kind, data, undefined, permitted_labels);
                 } else {
-                    set_data(model_name, kind, add_to_data(message.data, model_name, kind));
+                    set_data(model_name, kind, add_to_data(data, model_name, kind), undefined, permitted_labels);
                 }
                 invoke_callback(callback);
             } catch (error) {
@@ -1591,8 +1662,11 @@ const receive_message =
             let model_name = message.train.model_name;
             install_settings(message.train);
             const options = message.train;
-            if (get_data(model_name, 'categories')) {
+            const categories = get_data(model_name, 'categories');
+            if (categories) {
                 options.tfvis_options.measure_accuracy = true;
+//                 options.tfvis_options.display_confusion_matrix = true;
+                options.class_names = categories;
             }
             train_model(get_model(model_name),
                         get_data(model_name, 'datasets'),
@@ -1803,12 +1877,20 @@ const receive_message =
                                                          error.message},
                                           "*");
             };
-            record_callbacks(success_callback, error_callback, experiment_end_callback);
-            optimize_hyperparameters(model_name, number_of_experiments, epochs,
-                                     experiment_end_callback, success_callback, error_callback,
-                                     message.what_to_optimize,
-                                     message.scoring_weights,
-                                     message.number_of_samples);
+            record_callbacks(success_callback, error_callback, experiment_end_callback);             
+            message.tfvis_options.measure_accuracy = !!categories;
+            const {learning_rate, stop_if_no_progress_for_n_epochs, validation_split, shuffle,
+                   what_to_optimize, scoring_weights, number_of_samples, tfvis_options} = message;
+            optimize_hyperparameters({model_name, number_of_experiments, epochs,
+                                      learning_rate,
+                                      stop_if_no_progress_for_n_epochs,
+                                      validation_split,
+                                      shuffle,
+                                      experiment_end_callback, success_callback, error_callback,
+                                      what_to_optimize,
+                                      scoring_weights,
+                                      number_of_samples,
+                                      tfvis_options});
         } else if (typeof message.replace_with_best_model !== 'undefined') {
             const model_name = message.replace_with_best_model;
             replace_with_best_model(model_name,
@@ -1850,25 +1932,27 @@ const replace_with_best_model = (name_of_model_used_in_search, success_callback,
 
 window.addEventListener('message', receive_message);
 
-return {get_model: get_model, 
-        add_to_models: add_to_models,
+return {get_model, 
+        add_to_models,
         models: () => models,
-        get_data: get_data,
-        set_data: set_data,
-        add_to_data: add_to_data,
-        create_model: create_model,
-        train_model: train_model,
-        predict: predict,
-        gui_state: gui_state,
-        parameters_interface: parameters_interface,
-        create_model_parameters: create_model_parameters,
-        create_model_with_parameters: create_model_with_parameters,
-        create_training_parameters: create_training_parameters,
-        create_hyperparameter_optimize_parameters: create_hyperparameter_optimize_parameters,
-        train_with_parameters: train_with_parameters,
-        create_hyperparameter_optimization_tab: create_hyperparameter_optimization_tab,
-        save_and_load: save_and_load,
-        create_button: create_button,
-        replace_with_best_model: replace_with_best_model,
-        replace_button_results: replace_button_results};
+        get_data,
+        set_data,
+        reset_all,
+        add_to_data,
+        create_model,
+        train_model,
+        predict,
+        gui_state,
+        parameters_interface,
+        create_model_parameters,
+        create_model_with_parameters,
+        create_training_parameters,
+        create_hyperparameter_optimize_parameters,
+        train_with_parameters,
+        create_hyperparameter_optimization_tab,
+        save_and_load,
+        standard_deviation,
+        create_button,
+        replace_with_best_model,
+        replace_button_results};
 }()));

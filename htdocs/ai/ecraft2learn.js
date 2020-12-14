@@ -149,7 +149,8 @@ window.ecraft2learn =
           }
           let original_open_project = SnapSerializer.prototype.openProject;
           SnapSerializer.prototype.openProject = function (project, ide) {
-              stop_all_scripts();
+              stop_all_scripts(true);
+              remove_all_message_listeners();
               if (ecraft2learn.snap_project_opened && window.parent === window) {
                   // already been opened and not inside an iframe
                   // problem with the following is that some ecraft2learn functions have
@@ -175,7 +176,7 @@ window.ecraft2learn =
               }      
           };        
       };
-      const stop_all_scripts = function () {
+      const stop_all_scripts = (and_reset_iframes) => {
           if (window.speechSynthesis) {
               window.speechSynthesis.cancel(); // should stop all utterances
           }
@@ -186,6 +187,9 @@ window.ecraft2learn =
           if (ecraft2learn.support_window) {
               Object.values(ecraft2learn.support_window).forEach(function (support_window) {
                   support_window.postMessage('stop', '*');
+                  if (and_reset_iframes) {
+                      support_window.postMessage('reset', '*');
+                  }
               });
           }
           ecraft2learn.outstanding_callbacks.forEach(function (callback) {
@@ -204,12 +208,26 @@ window.ecraft2learn =
               original_stopAllScripts();
           };      
       };
+      const workaround_snap_message_listener = () => {
+          const snap_listener = window.onmessage;
+          window.onmessage = undefined;
+          window.addEventListener('message',
+                                  (event) => {
+                                      if (!event.data.selector) {
+                                          return; 
+                                      }
+                                      snap_listener(event);
+                                  });
+      };
       if (document.body) {
           track_whether_snap_is_stopped();
           enhance_snap_openProject();
+          workaround_snap_message_listener();
       } else {
+          // too soon so wait until page is loaded
           window.addEventListener('load', track_whether_snap_is_stopped, false);
           window.addEventListener('load', enhance_snap_openProject, false);
+          window.addEventListener('load', workaround_snap_message_listener, false);
       }
       let get_global_variable_value = function (name, default_value) {
           // returns the value of the Snap! global variable named 'name'
@@ -249,7 +267,7 @@ window.ecraft2learn =
             // callback.emptySlots+1 is in case callback is passed more arguments than callback has empty slots
             let parameters = callback.emptySlots > 0 ?
                              Array.prototype.slice.call(arguments, 1, callback.emptySlots+1) :
-                             Array.prototype.slice.call(arguments, 1);
+                             Array.prototype.slice.call(arguments, 1, 2);
             // invoke the callback with the argments (other than the callback itself)
             // if BlockMorph then needs a receiver -- apparently callback is good enough
             if (callback.receiver.isWarped) {
@@ -646,6 +664,10 @@ window.ecraft2learn =
             ecraft2learn.speaking_ongoing = false;
             invoke_callback(finished_callback, message);
         };
+        utterance.onerror = (speech_error) => {
+            ecraft2learn.speaking_ongoing = false;
+            console.log({speech_error});
+        };
         ecraft2learn.speaking_ongoing = true;
         window.speechSynthesis.speak(utterance);
     };
@@ -784,6 +806,17 @@ window.ecraft2learn =
                    "You may find that the Raspberry Pi is too slow for machine learning to work well.");
         }       
     };
+    let message_listeners = [];
+    const listen_for_messages = (listener) => {
+        window.addEventListener('message', listener);
+        message_listeners.push(listener);
+    };
+    const remove_all_message_listeners = () => {
+        message_listeners.forEach(listener => {
+            window.removeEventListener('message', listener);
+        });
+        message_listeners = [];
+    };
     let load_transfer_training = (source_name, training_data, callback) => {
         record_callbacks(callback);
         let source;
@@ -810,7 +843,7 @@ window.ecraft2learn =
                     window.removeEventListener('message', receive_messages_from_iframe);
                 }
         };
-        window.addEventListener('message', receive_messages_from_iframe, false);               
+        listen_for_messages(receive_messages_from_iframe);               
     };
     let train = function (options) {
       // options can be
@@ -848,7 +881,10 @@ window.ecraft2learn =
                   if (event.data === "MobileNet loaded" || event.data === "Audio support loaded") {
                       machine_learning_window.postMessage({training_class_names: buckets,
                                                            training_name,
-                                                           no_display_of_support_window},
+                                                           no_display_of_support_window,
+                                                           hostname: window.location.hostname,
+                                                           search: window.location.search,
+                                                           hash: window.location.hash},
                                                           "*");
                       if (no_display_of_support_window) {
                          invoke_callback(callback);
@@ -862,7 +898,7 @@ window.ecraft2learn =
                       invoke_callback(callback, "Ready");
                   }
           };
-          window.addEventListener('message', receive_messages_from_iframe, false);         
+          listen_for_messages(receive_messages_from_iframe);         
           return;
       }           
       if (add_to_previous_training &&
@@ -1142,7 +1178,7 @@ window.ecraft2learn =
                         }
                     }
                 };
-                window.addEventListener('message', receive_message);            
+                listen_for_messages(receive_message);            
             }
             if (ecraft2learn.support_window[support_window_type]) {
                 ecraft2learn.support_window[support_window_type].postMessage(request_generator(), '*');
@@ -1200,7 +1236,7 @@ window.ecraft2learn =
                                       }
                                   });
     };
-    const send_data = function(model_name, kind, input, output, ignore_old_dataset, callback) {
+    const send_data = (model_name, kind, input, output, ignore_old_dataset, callback, permitted_labels) => {
         record_callbacks(callback);
         const time_stamp = Date.now();
         request_of_support_window('tensorflow.js',
@@ -1208,10 +1244,11 @@ window.ecraft2learn =
                                   () => {
                                       return {data: {input: snap_to_javascript(input, true),
                                                      output: snap_to_javascript(output, false)},
-                                              model_name: model_name,
-                                              kind: kind,
+                                              model_name,
+                                              kind,
+                                              permitted_labels: snap_to_javascript(permitted_labels, false),
                                               ignore_old_dataset: ignore_old_dataset,
-                                              time_stamp: time_stamp};
+                                              time_stamp};
                                   },
                                   (message) => {
                                       return message.data_received === time_stamp ||
@@ -1231,13 +1268,22 @@ window.ecraft2learn =
                                       }
                                   }); 
     };
+    const set_tensorflow_visualization_options = (width, height, minimum_loss, maximum_loss,
+                                                  display_graphs, display_layers_after_training, display_confusion_matrix) => {
+        ecraft2learn.tensorflow_visualization_options = 
+            {width, height,
+             container_width: width+20, // need some room for scroll bars
+             yAxisDomain: [minimum_loss, maximum_loss],
+             display_graphs, display_layers_after_training, display_confusion_matrix};
+    };
     const train_model = (model_name, epochs, learning_rate, shuffle, validation_split,
                          success_callback, error_callback,
                          // following added after release so easiest to add them at the end
                          stop_if_no_progress_for_n_epochs) => {
         record_callbacks(success_callback, error_callback);
         const time_stamp = Date.now();
-        const tfvis_options = {display_graphs: true,
+        const tfvis_options = ecraft2learn.tensorflow_visualization_options ||
+                              {display_graphs: true,
                                display_confusion_matrix: true};
         request_of_support_window('tensorflow.js',
                                   'Loaded',
@@ -1287,8 +1333,9 @@ window.ecraft2learn =
 //                                   });
     };
     const predictions_from_model = (model_names, inputs, success_callback, error_callback,
-    // optional categories added after release - really should have used a single JavaScript object as input
+        // optional categories added after release - really should have used a single JavaScript object as input arguments
                                     categories) => {
+        // while categories can be computed from the dataset it is needed if there is both a training dataset and validation
         record_callbacks(success_callback, error_callback);
         const time_stamp = Date.now();
         request_of_support_window('tensorflow.js',
@@ -1480,7 +1527,11 @@ window.ecraft2learn =
                                       trial_end_callback, success_callback, error_callback,
                                       what_to_optimize,
                                       scoring_weights,
-                                      number_of_samples) => {
+                                      number_of_samples,
+                                      learning_rate,
+                                      stop_if_no_progress_for_n_epochs,
+                                      validation_split,
+                                      shuffle) => {
         if (typeof epochs !== 'number') {
             epochs = 0; // so it will use default in tensorflow.js support_window
         }
@@ -1492,14 +1543,28 @@ window.ecraft2learn =
         request_of_support_window('tensorflow.js',
                                   'Loaded',
                                   () => {
+                                      const tfvis_options = ecraft2learn.tensorflow_visualization_options ||
+                                                            {callbacks: ['onEpochEnd'],
+                                                             yAxisDomain: [0, 5],
+                                                             width: 480,
+                                                             container_width: 500,
+                                                             height: 400,
+                                                             display_graphs: true,
+                                                             display_layers: true,
+                                                             display_confusion_matrix: true}
                                       return {optimize_hyperparameters: true,
                                               model_name,
                                               number_of_experiments,
                                               number_of_samples,
                                               epochs,
+                                              learning_rate,
+                                              stop_if_no_progress_for_n_epochs,
+                                              validation_split,
+                                              shuffle,
                                               time_stamp,
                                               what_to_optimize: snap_to_javascript(what_to_optimize),
-                                              scoring_weights: snap_to_javascript(scoring_weights)};
+                                              scoring_weights: snap_to_javascript(scoring_weights),
+                                              tfvis_options};
                                   },
                                   (message) => {
                                       return message.optimize_hyperparameters_time_stamp === time_stamp;
@@ -1613,7 +1678,7 @@ window.ecraft2learn =
                 window.removeEventListener('message', receive_message);
             }
         };
-        window.addEventListener('message', receive_message);
+        listen_for_messages(receive_message);
         if (typeof ecraft2learn.support_window[source] === 'undefined') {
             // create the support window as 1x1 pixel
             create_machine_learning_window(source, undefined, undefined, undefined, true);
@@ -2128,12 +2193,11 @@ xhr.send();
 
     let loading_tensor_flow = false;
 
-    window.addEventListener("message",
-                            function (event) {
-                                  if (typeof event.data.together_url !== 'undefined') {
-                                      ecraft2learn.together_URL = event.data.together_url;
-                                  }
-                            });
+    listen_for_messages((event) => {
+                            if (typeof event.data.together_url !== 'undefined') {
+                                ecraft2learn.together_URL = event.data.together_url;
+                            }
+                        });
 
     // the following are the ecraft2learn functions available via this library
 
@@ -2191,16 +2255,35 @@ xhr.send();
           };
           xhr.send();
       },
-
-      start_speech_recognition: function (final_spoken_callback, 
-                                          // following are optional
-                                          error_callback, 
-                                          interim_spoken_callback, 
-                                          language, 
-                                          max_alternatives,
-                                          all_results_callback,
-                                          all_confidence_values_callback,
-                                          grammar) {
+      start_speech_recognition_v2: (final_spoken_callback, options) => {
+          const {error_callback, 
+                 interim_spoken_callback,
+                 language,
+                 max_alternatives,
+                 all_results_callback,
+                 all_confidence_values_callback,
+                 grammar,
+                 keep_listening} = options;
+           ecraft2learn.start_speech_recognition(final_spoken_callback,
+                                                 error_callback, 
+                                                 interim_spoken_callback, 
+                                                 language,
+                                                 max_alternatives,
+                                                 all_results_callback,
+                                                 all_confidence_values_callback,
+                                                 grammar,
+                                                 keep_listening);
+      },
+      start_speech_recognition: (final_spoken_callback, 
+                                 // following are optional
+                                 error_callback, 
+                                 interim_spoken_callback, 
+                                 language,
+                                 max_alternatives,
+                                 all_results_callback,
+                                 all_confidence_values_callback,
+                                 grammar,
+                                 keep_listening) => {
           // final_spoken_callback and interim_spoken_callback are called
           // with the text recognised by the browser's speech recognition capability
           // interim_spoken_callback 
@@ -2212,31 +2295,31 @@ xhr.send();
           // if the browser has no support for speech recognition then the Microsoft Speech API is used (API key required)
           if (typeof SpeechRecognition === 'undefined' && typeof webkitSpeechRecognition === 'undefined') {
               if (!inside_snap()) {
-                  alert("This browser does not support speech recognition. Use Chrome or type in your questions instead.");
-                  return;
+                  alert("This browser does not support speech recognition. Chrome is known to work.");
+                  return false;
               }
               // no support from this browser so try using the Microsoft Speech API
               inform("This browser does not support speech recognition",
                      "You could use Chrome or you can use Microsoft's speech recognition service.\n" +
                      "Go ahead and use the Microsoft service? (It requires an API key.)",
-                      function () {
-                           ecraft2learn.start_microsoft_speech_recognition(interim_spoken_callback, final_spoken_callback, error_callback);
-                      });                  
-              return;
+                     function () {
+                          ecraft2learn.start_microsoft_speech_recognition(interim_spoken_callback, final_spoken_callback, error_callback);
+                     });                  
+              return false;
           }
-          if (window.speechSynthesis.speaking || ecraft2learn.speaking_ongoing || ecraft2learn.speech_recognition) { 
+          const restart_speech_recognition = () => {
+              ecraft2learn.start_speech_recognition(final_spoken_callback, error_callback, interim_spoken_callback, language, 
+                                                    max_alternatives, all_results_callback, all_confidence_values_callback,
+                                                    grammar, keep_listening);
+          };
+          if (window.speechSynthesis.speaking || ecraft2learn.speaking_ongoing || (!keep_listening && ecraft2learn.speech_recognition)) { 
               // don't listen while speaking or while listening is still in progress
               // added ecraft2learn.speaking_ongoing since window.speechSynthesis.speaking wasn't sufficient on some systems
               // in particular when an external speaker is involved
               if (debugging) {
                   console.log("Delaying start due to " + (window.speechSynthesis.speaking ? "speaking" : "listen in progress"));
               }
-              setTimeout(function () {
-                             ecraft2learn.start_speech_recognition(final_spoken_callback, error_callback, interim_spoken_callback, language, 
-                                                                   max_alternatives, all_results_callback, all_confidence_values_callback,
-                                                                   grammar); 
-                         },
-                         100); // try again in a tenth of a second
+              setTimeout(restart_speech_recognition, 100); // try again in a tenth of a second
               return;
           }
           record_callbacks(final_spoken_callback, error_callback, interim_spoken_callback, all_results_callback, all_confidence_values_callback);
@@ -2271,7 +2354,7 @@ xhr.send();
           let handle_result = function (event) {
               let spoken = event.results[event.resultIndex][0].transcript; // first result
               let final = event.results[event.resultIndex].isFinal;
-              if (final) {
+              if (final && !keep_listening) {
                   // unless callback turns it back on
                   ecraft2learn.stop_speech_recognition();
               }
@@ -2314,7 +2397,7 @@ xhr.send();
           const handle_error = function (event) {
               // pass original message along in case a program wants to respond to each one.
               invoke_callback(error_callback, improve_error_message(event.error), event.error);
-              ecraft2learn.stop_speech_recognition();
+//               ecraft2learn.stop_speech_recognition();
               if (debugging) {
                   console.log("Recognition error: " + event.error);
               }
@@ -2333,6 +2416,7 @@ xhr.send();
               speech_recognition = (typeof SpeechRecognition === 'undefined') ?
                                    new webkitSpeechRecognition() :
                                    new SpeechRecognition();
+              speech_recognition.continuous = keep_listening;
               // following prevents speech_recognition from being garbage collected before its listeners run
               // it is also used to prevent multiple speech recognitions to occur simultaneously
               ecraft2learn.speech_recognition = speech_recognition;
@@ -2369,17 +2453,20 @@ xhr.send();
                   if (debugging) {
                       console.log("On end triggered.");
                   }
-                  if (ecraft2learn.speech_recognition) {
-                      if (debugging) {
-                          console.log("On end but no result or error so stopping then restarting.");
+                  if (ecraft2learn.speech_recognition) { // hasn't been turned off
+                      if (keep_listening) {
+                          speech_recognition.start();
+                      } else {
+                          if (debugging) {
+                              console.log("On end but no result or error so stopping then restarting.");
+                          }
+                          ecraft2learn.stop_speech_recognition();
+                          create_speech_recognition_object();
+                          restart();
                       }
-                      ecraft2learn.stop_speech_recognition();
-                      create_speech_recognition_object();
-                      restart();
                   }                
               };
           };
-          create_speech_recognition_object();
           ecraft2learn.stop_speech_recognition = function () {
               if (debugging) {
                   console.log("Stopped.");
@@ -2392,6 +2479,7 @@ xhr.send();
                   speech_recognition.stop();
               }
           };
+          create_speech_recognition_object();
           restart();
           // if the tab or window is minimised or hidden then
           // speech recognition is paused until the window or tab is shown again
@@ -2413,7 +2501,8 @@ xhr.send();
                // but not all browsers accept that
                window.removeEventListener("message", process_messages);
           };
-          window.addEventListener("message", process_messages);
+          listen_for_messages(process_messages);
+          return true;
     },
 
     get_default_lanugage: () => ecraft2learn.default_language || navigator.language,
@@ -2674,6 +2763,7 @@ xhr.send();
                                        2*stage.width(),
                                        2*stage.height(),
                                        mirrored);
+      ecraft2learn.video = undefined; // this is so one can change the browser settings to use a different camera
       invoke_callback(callback, create_costume(canvas));
   },
 
@@ -3080,7 +3170,7 @@ xhr.send();
                               }, 
                               TRAINING_IMAGE_WIDTH,
                               TRAINING_IMAGE_HEIGHT);
-       window.addEventListener("message", receive_confidences);
+       listen_for_messages(receive_confidences);
   },
   costume_confidences: function (costume_or_costume_number, callback, sprite) {
       let receive_confidences = function (event) {
@@ -3097,7 +3187,7 @@ xhr.send();
       }
       record_callbacks(callback);
       ecraft2learn.support_window['training using camera'].postMessage({predict: get_costume_data(costume)}, "*");
-      window.addEventListener("message", receive_confidences);
+      listen_for_messages(receive_confidences);
 //       costume_to_image(costume,
 //                        function (image) {
 //                            support_window_request("You need to train the system before using 'Image label confidences'.\n" +
@@ -3106,7 +3196,7 @@ xhr.send();
 //                                                   TRAINING_IMAGE_WIDTH,
 //                                                   TRAINING_IMAGE_HEIGHT,
 //                                                   image);
-//                             window.addEventListener("message", receive_confidences);
+//                             listen_for_messages(receive_confidences);
 //                         });                            
   },
   microphone_confidences: function (builtin_recognizer, callback) {
@@ -3142,7 +3232,7 @@ xhr.send();
       } else {
           ecraft2learn.support_window['training using microphone'].postMessage({predict: !builtin_recognizer}, "*");
       }
-      window.addEventListener("message", receive_confidences);
+      listen_for_messages(receive_confidences);
   },
   stop_audio_recognition: () => {
       if (ecraft2learn.support_window['training using microphone']) {
@@ -3168,7 +3258,7 @@ xhr.send();
       }
       // convert from milliseconds to seconds
       ecraft2learn.support_window['training using microphone (old version)'].postMessage({predict: duration_in_seconds*1000}, "*");
-      window.addEventListener("message", receive_confidences);  
+      listen_for_messages(receive_confidences);  
   },
   stop_audio_recognition: function () {
       if (ecraft2learn.support_window['training using microphone']) {
@@ -3195,7 +3285,7 @@ xhr.send();
       ecraft2learn.support_window['training using camera'].postMessage({train: get_costume_data(costume),
                                                                         label: label},
                                                                        "*");
-      window.addEventListener("message", receive_comfirmation);
+      listen_for_messages(receive_comfirmation);
 //       costume_to_image(costume,
 //                        function (image) {
 //                            support_window_request("You need to start training before using 'Add image to training'.\n" +
@@ -3209,7 +3299,7 @@ xhr.send();
 //                                                    TRAINING_IMAGE_WIDTH,
 //                                                    TRAINING_IMAGE_HEIGHT,
 //                                                    image);
-//                             window.addEventListener("message", receive_comfirmation);
+//                             listen_for_messages(receive_comfirmation);
 //                        });
   },
   costume_count: function (sprite) {
@@ -3263,7 +3353,7 @@ xhr.send();
                       window.removeEventListener("message", listen_for_posenet_window_ready);
                   }
               }
-              window.addEventListener("message", listen_for_posenet_window_ready);
+              listen_for_messages(listen_for_posenet_window_ready);
               return;                      
           }
           record_callbacks(callback);
@@ -3280,7 +3370,7 @@ xhr.send();
                   window.removeEventListener("message", receive_poses);
               };
           };
-          window.addEventListener("message", receive_poses);
+          listen_for_messages(receive_poses);
       };
       ask_for_poses();
   },
@@ -3337,7 +3427,8 @@ xhr.send();
   create_tensorflow_model,
   send_data,
   train_model,
-  is_model_ready_for_prediction,
+  set_tensorflow_visualization_options,
+  is_model_ready_for_prediction, // kept for backwards compatibility
   predictions_from_model,
   load_tensorflow_model_from_URL,
   get_prediction_from_teachable_machine_image_or_pose_model,
@@ -3574,6 +3665,7 @@ xhr.send();
       }
   },
   sentence_features: (sentences, callback) => {
+      record_callbacks(callback);
       const embed = () => {
           ecraft2learn.universal_sentence_encoder.embed(sentences.asArray()).then(embeddings_tensor => {
               const embeddings = embeddings_tensor.arraySync();

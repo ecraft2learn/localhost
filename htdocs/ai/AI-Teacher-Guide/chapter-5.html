@@ -96,18 +96,22 @@ A program can search through all the words to find the word that is closest to a
 The <span class="block-name">closest word to</span> reporter block does this.
 </p>
 
+<h4 class="advanced-information-white" id="measuring-distance">Different ways of measuring distances in high dimensional spaces</h4>
 <p class="advanced-topic">Click to read an advanced topic</p>
 <span class="advanced-topic-body">
-<h4 class="advanced-information-white" id="measuring-distance">Different ways of measuring distances in high dimensional spaces</h4>
 <p class="background-information advanced-information">
 There are two common ways of measuring distance in a high-dimensional space.
 One is <a href="https://en.wikipedia.org/wiki/Euclidean_distance" target="_blank">Euclidean distance</a>
 which is a generalisation of how distance is computed in 2 and 3 dimensional space.
 The idea is to take the sum of the squares of the differences along each of the 300 dimensions and then report the square root of that.
 The other measure is called <a href="https://en.wikipedia.org/wiki/Cosine_similarity" target="_blank">cosine similarity</a>.
-Both work pretty well in the <span class="block-name">closest word to</span> reporter which lets you choose which to use.
+Both work pretty well in the <i>full-featured version</i> of the <span class="block-name">closest word to</span> reporter
+that lets you choose which to use.
 While they usually agree sometimes small differences can be observed.
 For example, the third closest word to "dog" can be "canine" or "puppy" depending on the measure.
+The default is cosine similarity because researchers have found it works a little better in high-dimensional spaces.
+Using the <span class="block-name">acos of</span> block on the <span class="block-name">cosine similarity</span> reporter
+produces the angle between the inputs which is easier to understand.
 </p>
 </span>
 
@@ -150,6 +154,17 @@ And "king+(woman-man)=x" and "woman+(king-man)=x" are equivalent yet they solve 
 This use of word embeddings works for grammatical analogies as well.
 Try solving "slow is to slower as fast is to what?".
 You might need to add 'fast' as an exception.
+</p>
+<p class="instructions">
+Note that for word analogies of the form A is to B as C is to D that the distance between A-B to C-D is much
+less than if A, B, C, and D were just words chosen at random.
+One could search through a list of words by choosing four words and measuring the distance between
+differences between pairs of words.
+If one only keeps those where the distance is small one may discover new word analogy puzzles.
+However, if one did this by searching through all 20,000 words then 3,998,800,199,970,000 combinations would
+have to be considered.
+Here is a <a href="../snap/snap.html?project=word analogy search&editMode&noRun" target="_blank">
+project that enables one to search through a smaller set</a>.
 </p>
 <h4 class="instructions-white" id="closest-words">Finding all the 'closest' words</h4>
 <p class="instructions">

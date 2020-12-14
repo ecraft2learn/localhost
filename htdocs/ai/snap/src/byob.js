@@ -98,17 +98,16 @@
 /*global modules, CommandBlockMorph, SpriteMorph, TemplateSlotMorph, Map,
 StringMorph, Color, DialogBoxMorph, ScriptsMorph, ScrollFrameMorph, WHITE,
 Point, HandleMorph, HatBlockMorph, BlockMorph, detect, List, Process,
-AlignmentMorph, ToggleMorph, InputFieldMorph, ReporterBlockMorph,
-StringMorph, nop, radians, BoxMorph, ArrowMorph, PushButtonMorph,
-contains, InputSlotMorph, ToggleButtonMorph, IDE_Morph, MenuMorph, copy,
-ToggleElementMorph, fontHeight, StageMorph, SyntaxElementMorph,
-SnapSerializer, CommentMorph, localize, CSlotMorph, MorphicPreferences,
-SymbolMorph, isNil, CursorMorph, VariableFrame, WatcherMorph, Variable,
-BooleanSlotMorph, XML_Serializer, SnapTranslator*/
+AlignmentMorph, ToggleMorph, InputFieldMorph, ReporterBlockMorph, StringMorph,
+nop, radians, BoxMorph, ArrowMorph, PushButtonMorph, contains, InputSlotMorph,
+ToggleButtonMorph, IDE_Morph, MenuMorph, copy, ToggleElementMorph, fontHeight,
+StageMorph, SyntaxElementMorph, CommentMorph, localize, CSlotMorph,
+MorphicPreferences, SymbolMorph, isNil, CursorMorph, VariableFrame,
+WatcherMorph, Variable, BooleanSlotMorph, XML_Serializer, SnapTranslator*/
 
 // Global stuff ////////////////////////////////////////////////////////
 
-modules.byob = '2020-July-24';
+modules.byob = '2020-October-07';
 
 // Declarations
 
@@ -559,6 +558,40 @@ CustomBlockDefinition.prototype.purgeCorpses = function () {
     this.scripts = this.scripts.filter(topBlock =>
         !topBlock.isCorpse
     );
+};
+
+// CustomBlockDefinition dependencies
+
+CustomBlockDefinition.prototype.collectDependencies = function (
+    excluding = [],
+    result = []
+) {
+    if (!this.isGlobal) {
+        throw new Error('collecting dependencies is only supported\n' +
+            'for global custom blocks');
+    }
+    excluding.push(this);
+    this.scripts.concat(
+        this.body ? [this.body.expression] : []
+    ).forEach(script => {
+        script.forAllChildren(morph => {
+            if (morph.isCustomBlock &&
+                morph.isGlobal &&
+                !contains(excluding, morph.definition) &&
+                !contains(result, morph.definition)
+            ) {
+                result.push(morph.definition);
+                morph.definition.collectDependencies(excluding, result);
+            }
+        });
+    });
+    return result;
+};
+
+CustomBlockDefinition.prototype.isSending = function (message, receiverName) {
+    return this.scripts.concat(
+        this.body ? [this.body.expression] : []
+    ).some(script => script.isSending(message, receiverName));
 };
 
 // CustomCommandBlockMorph /////////////////////////////////////////////
@@ -1105,11 +1138,6 @@ CustomCommandBlockMorph.prototype.userMenu = function () {
         } else {
             menu.addLine();
         }
-        /*
-        if (shiftClicked) {
-            menu.addItem("export definition...", 'exportBlockDefinition');
-        }
-        */
         if (this.isTemplate) { // inside the palette
             if (this.isGlobal) {
                 menu.addItem(
@@ -1164,6 +1192,13 @@ CustomCommandBlockMorph.prototype.userMenu = function () {
                 "duplicate block definition...",
                 'duplicateBlockDefinition'
             );
+            if (this.isGlobal) {
+                menu.addItem(
+                    "export block definition...",
+                    'exportBlockDefinition',
+                    'including dependencies'
+                );
+            }
         } else { // inside a script
             // if global or own method - let the user delete the definition
             if (this.isGlobal ||
@@ -1188,10 +1223,11 @@ CustomCommandBlockMorph.prototype.userMenu = function () {
 };
 
 CustomCommandBlockMorph.prototype.exportBlockDefinition = function () {
-    var xml = new SnapSerializer().serialize(this.definition),
-        ide = this.parentThatIsA(IDE_Morph);
-
-    ide.saveXMLAs(xml, this.spec);
+    var ide = this.parentThatIsA(IDE_Morph);
+    new BlockExportDialogMorph(
+        ide.serializer,
+        [this.definition].concat(this.definition.collectDependencies())
+    ).popUp(this.world());
 };
 
 CustomCommandBlockMorph.prototype.duplicateBlockDefinition = function () {
@@ -1423,6 +1459,9 @@ CustomReporterBlockMorph.prototype.duplicateBlockDefinition
 
 CustomReporterBlockMorph.prototype.deleteBlockDefinition
     = CustomCommandBlockMorph.prototype.deleteBlockDefinition;
+
+CustomReporterBlockMorph.prototype.exportBlockDefinition
+    = CustomCommandBlockMorph.prototype.exportBlockDefinition;
 
 // CustomReporterBlockMorph events:
 
@@ -2263,7 +2302,7 @@ BlockEditorMorph.prototype.updateDefinition = function () {
     var head, ide,
         oldSpec = this.definition.blockSpec(),
         pos = this.body.contents.position(),
-        count = 0,
+        count = 1,
         element;
 
     this.definition.receiver = this.target; // only for serialization
@@ -3284,7 +3323,7 @@ InputSlotDialogMorph.prototype.deleteFragment = function () {
 
 InputSlotDialogMorph.prototype.createSlotTypeButtons = function () {
     // populate my 'slots' area with radio buttons, labels and input fields
-    var defLabel, defInput, defSwitch, loopArrow;
+    var defLabel, defInput, defSwitch, loopArrow, settingsButton;
 
     // slot types
     this.addSlotTypeButton('Object', '%obj');
@@ -3392,7 +3431,7 @@ InputSlotDialogMorph.prototype.createSlotTypeButtons = function () {
             'loop',
             this.fontSize * 0.7,
             WHITE
-        ),
+        ).getImage(),
         null // builder method that constructs the element morph
     );
     loopArrow.refresh = () => {
@@ -3408,6 +3447,19 @@ InputSlotDialogMorph.prototype.createSlotTypeButtons = function () {
     };
     this.slots.loopArrow = loopArrow;
     this.slots.add(loopArrow);
+
+    // settings button
+    settingsButton = new PushButtonMorph(
+        this.slots,
+        () => this.slots.userMenu().popUpAtHand(this.world()),
+        new SymbolMorph('gearPartial', this.fontSize * 1.5)
+    );
+    settingsButton.padding = 0;
+    settingsButton.fixLayout();
+    settingsButton.refresh = nop;
+    this.slots.settingsButton = settingsButton;
+    this.slots.add(settingsButton);
+
 };
 
 InputSlotDialogMorph.prototype.setSlotType = function (type) {
@@ -3590,6 +3642,13 @@ InputSlotDialogMorph.prototype.fixSlotsLayout = function () {
     // loop arrow
 
     this.slots.loopArrow.setPosition(this.slots.defaultInputLabel.position());
+    this.slots.settingsButton.setPosition(
+        this.slots.bottomRight().subtract(
+            this.slots.settingsButton.extent().add(
+                this.padding + this.slots.border
+            )
+        )
+    );
 
     this.slots.changed();
 };
