@@ -219,6 +219,21 @@ window.ecraft2learn =
               original_stopAllScripts();
           };      
       };
+      const enhance_stop_all_sounds = () => {
+          if (!inside_snap()) {
+              return;
+          }
+          const original_stop_all_sounds = Process.prototype.doStopAllSounds;
+          const ide = get_snap_ide();
+          if (ide) {
+              Process.prototype.doStopAllSounds = () => {
+                  original_stop_all_sounds.call(ide.stage.threads.processes[0]);
+                  if (window.speechSynthesis) {
+                      window.speechSynthesis.cancel(); // should stop all utterances
+                  }
+              }
+          }
+      }
       const workaround_snap_message_listener = () => {
           const snap_listener = window.onmessage;
           window.onmessage = undefined;
@@ -230,15 +245,17 @@ window.ecraft2learn =
                                       snap_listener(event);
                                   });
       };
-      if (document.body) {
+      const enhance_snap = () => {
           track_whether_snap_is_stopped();
+          enhance_stop_all_sounds();
           enhance_snap_openProject();
           workaround_snap_message_listener();
+      };
+      if (document.body) {
+          enhance_snap();
       } else {
           // too soon so wait until page is loaded
-          window.addEventListener('load', track_whether_snap_is_stopped, false);
-          window.addEventListener('load', enhance_snap_openProject, false);
-          window.addEventListener('load', workaround_snap_message_listener, false);
+          window.addEventListener('load', enhance_snap, false);
       }
       let get_global_variable_value = function (name, default_value) {
           // returns the value of the Snap! global variable named 'name'
@@ -267,6 +284,7 @@ window.ecraft2learn =
     };
     let invoke_callback = function (callback) { // any number of additional arguments
         // callback could either be a Snap! object or a JavaScript function
+        // see https://github.com/jmoenig/Snap/issues/1938
         if (inside_snap() && callback instanceof Context) { // assume Snap! callback
             if (callback.stopped_by_user) {
                 return;
@@ -1885,6 +1903,7 @@ window.ecraft2learn =
         }
     };
     let loading_coco_ssd_message_presented = false;
+    let loading_coco_ssd_message_removed = false;
     const detection_handler = (costume, options, callback, error_callback) => {
         if (options) {
             options = array_to_object(snap_to_javascript(options));
@@ -1910,7 +1929,9 @@ window.ecraft2learn =
             },
             (message) => {
                 if (loading_coco_ssd_message_presented) {
-                    show_message("loaded", .1);
+                    if (!loading_coco_ssd_message_removed)
+                        show_message("loaded", .1);
+                        loading_coco_ssd_message_removed = true;
                 }
                 if (message.error_message) {   
                     const title = "Error detecting images of objects in a costume";
@@ -1930,6 +1951,7 @@ window.ecraft2learn =
         });
     };
     let loading_body_pix_message_presented = false;
+    let loading_body_pix_message_removed = false;
     const segmentation_handler = (multi_person, costume, options, callback, error_callback, config, default_config) => {
       if (options) {
           options = array_to_object(snap_to_javascript(options));
@@ -1959,7 +1981,10 @@ window.ecraft2learn =
                                 },
                                 (message) => {
                                     if (loading_body_pix_message_presented) {
-                                        show_message("loaded", .1);
+                                        if (!loading_body_pix_message_removed) {
+                                            show_message("loaded", .1);
+                                        }
+                                        loading_body_pix_message_removed = true;
                                     }
                                     if (message.error_message) {   
                                         const title = "Error computing segmentations of a costume";
@@ -3496,6 +3521,13 @@ xhr.send();
   load_training_from_URL: (URL, user_callback) => {
       load_transfer_training_from_URL('camera', URL, user_callback);
   },
+  set_random_number_seed: (x) => {
+      // tf isn't available in this window need to post a message to the support window
+      // but this won't help use of random within Snap! - seems both windows need to load tensorflow
+      if (Math.seedrandom) { // provided by tensorflow.js 
+          Math.seedrandom(x);
+      }
+  },
   // some word embedding functionality
   dot_product,
   cosine_similarity,
@@ -3697,8 +3729,18 @@ xhr.send();
   },
   sentence_features: (sentences, callback) => {
       record_callbacks(callback);
+      if (!(sentences instanceof List)) {
+          throw new Error("Sentence features expected a list of sentences. Not " + sentences.constructor.name);;
+      }
+      const sentences_as_javascript = sentences.asArray();
+      if (sentences_as_javascript.length === 0) {
+          throw new Error("Sentence features does not accept empty lists.");
+      } 
+      if (typeof sentences_as_javascript[0] !== 'string') {
+          throw new Error("Sentence features expected the sentences to be text. Not " + sentences_as_javascript[0].constructor.name);
+      }
       const embed = () => {
-          ecraft2learn.universal_sentence_encoder.embed(sentences.asArray()).then(embeddings_tensor => {
+          ecraft2learn.universal_sentence_encoder.embed(sentences_as_javascript).then(embeddings_tensor => {
               const embeddings = embeddings_tensor.arraySync();
               embeddings_tensor.dispose();
               invoke_callback(callback, javascript_to_snap(embeddings));   
