@@ -217,6 +217,9 @@ const create_model = (options, failure_callback) => {
         if (tfvis_options.display_layers_after_creation) {
             show_layers(model, 'Model after creation', training_number);
         }
+        if (model_name.indexOf('_') > 0 && +(model_name.substring(model_name.lastIndexOf('_')+1)) >= 0) {
+            tensorflow.add_to_models(model);
+        }
         return model;
   } catch (error) {
       if (failure_callback) {
@@ -519,7 +522,8 @@ const train_model = (model, datasets, options, success_callback, failure_callbac
                         update_weights = true;
                     }
                 }
-                if (update_weights) {
+                if (update_weights && stop_if_no_progress_for_n_epochs > 0) {
+                    // if not early stopping then use final layer weights
                     best_weights = update_best_weights(model, best_weights);
                 }
                 if (tfvis_callbacks) {
@@ -551,7 +555,9 @@ const train_model = (model, datasets, options, success_callback, failure_callbac
       const configuration = {batchSize: batch_size,
                              epochs,
                              initialEpoch,
-                             validationData: xs_validation && [xs_validation, ys_validation],
+                             validationData: (xs_validation && xs_validation.shape[0] > 0) ? 
+                                             [xs_validation, ys_validation] : 
+                                             undefined,
                              validationSplit: validation_split,
                              shuffle,
                              classWeight: typeof tensorflow === 'object'? tensorflow.get_data(model_name, 'class_weights') : undefined,
@@ -650,10 +656,10 @@ const train_model = (model, datasets, options, success_callback, failure_callbac
               csv_values += "0, "; // unused layers
           }
           csv_values += batch_size + ", ";
-          csv_values += dropout_rate + ", ";
+          csv_values += (dropout_rate && dropout_rate.toFixed(4)) + ", ";
           csv_values += batch_normalization + ", ";
           csv_values += epochs + ", ";
-          csv_values += options.optimizer_name + ", ";
+          csv_values += options.optimization_method + ", ";
           csv_values += options.layer_initializer_name + ", ";
           csv_values += options.regularizer_name + ", ";
           csv_values += testing_fraction + ", ";

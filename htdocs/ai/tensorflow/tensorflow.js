@@ -8,7 +8,7 @@ window.tensorflow =
 ((function () {
 
 let models = {};
-const get_model = (name) => models[name];
+const get_model = (name) => name === '*current model*' ? model : models[name];
 
 let model; // used for defaults such as model name when creating a model
 
@@ -50,33 +50,55 @@ const set_data = (model_name, kind, value, callback, permitted_labels, minimum_n
         data[model_name] = {};
     }
     if (value.hasOwnProperty('output')) {
-        if (value.output.length > 0 && isNaN(+value.output[0])) {
+        if (value.output.length > 0) {
+            const values_are_non_numeric_strings = 
+                typeof value.output[0] === 'string' && isNaN(+value.output[0]);
+            const values_are_lists_of_non_numeric_strings = 
+                value.output[0] instanceof Array && value.output[0].length > 0 && isNaN(+value.output[0][0]);
             // values might be strings that represent numbers - only non-numeric strings can be category labels
-            let labels, class_weights;
-            [value, labels, class_weights] = 
-                to_one_hot_and_removed_data_with_unknown_output_labels(value, 
-                                                                       permitted_labels,
-                                                                       kind==='training');
-            data[model_name].categories = labels;
-            if (kind ==='training') {
-                data[model_name].class_weights = class_weights;
-            }
-            if (model_name === 'all models') {
-                // recreate all models with for example softmax and one-hot created before this data was available
-                Object.keys(data).forEach((name) => {
-                    if (data[name].hasOwnProperty('recreate')) {
-                        data[name]['recreate'](callback);
-                        callback = undefined;
-                    }
-                });
-            } else if (data[model_name].hasOwnProperty('recreate')) {
-                data[model_name]['recreate'](callback);
-                callback = undefined;               
+            // or might be a list of non-numeric strings
+            if (values_are_non_numeric_strings || values_are_lists_of_non_numeric_strings) {
+                let labels, class_weights;
+                [value, labels, class_weights] = 
+                    to_one_hot_and_removed_data_with_unknown_output_labels(value,
+                                                                           values_are_non_numeric_strings, 
+                                                                           permitted_labels,
+                    // disabling class weights - see What is the Effect of Importance Weighting in Deep Learning?
+                    // https://arxiv.org/abs/1812.03372
+                                                                           false); 
+//                                                                            // consider making this optional 
+//                                                                            kind === 'training');
+                if (values_are_non_numeric_strings) {
+                    data[model_name].categories = labels;
+                } else {
+                    data[model_name].categories_for_multiple_output = labels;
+                }
+                if (kind ==='training') {
+                    data[model_name].class_weights = class_weights;
+                }
+                if (model_name === 'all models') {
+                    // recreate all models with for example softmax and one-hot created before this data was available
+                    Object.keys(data).forEach((name) => {
+                        if (data[name].hasOwnProperty('recreate')) {
+                            data[name]['recreate'](callback);
+                            callback = undefined;
+                        }
+                    });
+                } else if (data[model_name].hasOwnProperty('recreate')) {
+                    data[model_name]['recreate'](callback);
+                    callback = undefined;               
+                }
+            } else {
+                if (value.output.length > 0 && typeof value.output[0] === 'string') {
+                    value.output = value.output.map((n) => +n); // string to number
+                } else if (value.output.length > 0 && value.output[0] instanceof Array) {
+                    value.output = value.output.map((list) => list.map((n) => +n));
+                }               
+                data[model_name].categories = undefined;
             }
         } else {
-            value.output = value.output.map((n) => +n); // string to number
-            data[model_name].categories = undefined;
-        }        
+            value = undefined;
+        }      
     }
     data[model_name][kind] = value;
     if (kind === 'training') {
@@ -88,20 +110,35 @@ const set_data = (model_name, kind, value, callback, permitted_labels, minimum_n
     }
     invoke_callback(callback);
 };
+
 const reset_all = () => {
     data = {};
     models = {};
     model = undefined;
 };
 
-const to_one_hot_and_removed_data_with_unknown_output_labels = (input_and_output, permitted_labels, need_class_weights) => {
-    const unique_labels = permitted_labels || [];
+const to_lower_case = (x) => 
+    typeof x === 'string' ? x.toLowerCase() : x.map(element => element.toLowerCase());
+
+const to_one_hot_and_removed_data_with_unknown_output_labels = 
+    (input_and_output, values_are_non_numeric_strings, permitted_labels, need_class_weights) => {
+    // if values_are_non_numeric_strings is false then they are lists of non-numeric strings
+    const unique_labels = (permitted_labels && permitted_labels.map(to_lower_case)) || [];
     const labels = input_and_output.output;
     const original_input = input_and_output.input;
     if (unique_labels.length === 0) {
         labels.forEach((label) => {
-            if (unique_labels.indexOf(label) < 0) {
-                unique_labels.push(label);
+            if (values_are_non_numeric_strings) {
+                if (unique_labels.indexOf(label) < 0) {
+                    unique_labels.push(label);
+                }
+            } else {
+                // label is really a list of labels
+                label.forEach((element) => {
+                    if (unique_labels.indexOf(element) < 0) {
+                        unique_labels.push(element);
+                    }
+                })
             }
         });
     }
@@ -116,20 +153,40 @@ const to_one_hot_and_removed_data_with_unknown_output_labels = (input_and_output
     const new_output = [];
     const counts = {};
     labels.forEach((label, index) => {
-        if (need_class_weights) {
-            if (counts[label]) {
-                counts[label] = counts[label]+1;
-            } else {
-                counts[label] = 1;
+        label = to_lower_case(label);
+        if (values_are_non_numeric_strings) {
+            if (need_class_weights) {
+                if (counts[label]) {
+                    counts[label] = counts[label]+1;
+                } else {
+                    counts[label] = 1;
+                }
+            }
+            const label_index = unique_labels.indexOf(label);
+            if (label_index >= 0) {
+                // only copy the input over if not skipping this entry
+                new_input.push(original_input[index]);
+                new_output.push(one_hot(label_index,
+                                        Math.max(unique_labels.length,
+                                                 window.minimum_number_of_categories_for_textual_output || 0)));
+            } // otherwise skip if output label not permitted
+        } else {    
+            const n_hot = unique_labels.map((unique_label) => {
+                // label is a list of labels
+                return label.indexOf(unique_label) >= 0 ? 1 : 0;
+            });
+            new_input.push(original_input[index]); // keep all the input entries
+            new_output.push(n_hot);
+            if (need_class_weights) {
+                label.forEach((element) => {
+                    if (counts[element]) {
+                        counts[element] = counts[element]+1;
+                    } else {
+                        counts[element] = 1;
+                    }
+                });                
             }
         }
-        const label_index = unique_labels.indexOf(label);
-        if (label_index >= 0) {
-            new_input.push(original_input[index]);
-            new_output.push(one_hot(label_index,
-                                    Math.max(unique_labels.length,
-                                             window.minimum_number_of_categories_for_textual_output || 0)));
-        } // otherwise skip if output label not permitted 
     });
     let class_weights = [];
     if (need_class_weights) {
@@ -182,7 +239,8 @@ const loss_function_named = (name) => {
 const add_to_models = function (new_model) {
     const current_model = models[new_model.name];
     if (current_model && current_model !== new_model && 
-        !current_model.disposed) {
+        !current_model.disposed &&
+        model_variants_from_current_search.length === 0) {
         try {
             current_model.dispose();
             current_model.disposed = true;
@@ -262,6 +320,7 @@ let highest_score;
 let metrics_of_highest_score;
 let is_best_so_far;
 let best_model;
+let best_parameters;
 let stop_on_next_experiment = false;
 let hyperparameter_searching = false;
 const optimize_hyperparameters_button = document.createElement('button');
@@ -587,7 +646,8 @@ const optimize_hyperparameters = (options) => {
                       result.best_model = best_model || previous_model; // if no best model then previous had NaN loss
                   }
                   invoke_callback(success_callback, result);
-                  if (previous_model && !previous_model.disposed && best_model && previous_model !== best_model) {
+                  if (previous_model && !previous_model.disposed && best_model && previous_model !== best_model &&
+                      model_variants_from_current_search.length === 0) {
                       previous_model.dispose();
                       previous_model.disposed = true;
                       previous_model = undefined;
@@ -629,6 +689,7 @@ const standard_deviation = (list) => {
 };
 
 let training_number = 0;
+let model_variants_from_current_search = []; // only used if model name includes '_1' for keeping versions
 
 const optimize = async (xs, ys, validation_tensors, test_tensors, options) => {
     let {model_name, 
@@ -636,6 +697,7 @@ const optimize = async (xs, ys, validation_tensors, test_tensors, options) => {
          number_of_experiments, // number of different parameters settings to explore
          epochs,
          learning_rate,
+         dropout_rate,
          stop_if_no_progress_for_n_epochs,
          validation_split,
          shuffle,
@@ -645,10 +707,27 @@ const optimize = async (xs, ys, validation_tensors, test_tensors, options) => {
          number_of_samples, // how many times to repeat experiments on the same parameters
          tfvis_options} = options || {};
     training_number = 0;
+    model_variants_from_current_search = [];
     best_model = undefined;
-    const create_and_train_model = async ({layers, optimization_method, loss_function, epochs, learning_rate, stop_if_no_progress_for_n_epochs,
-                                           dropout_rate, validation_split, activation, shuffle}, 
-                                          {xs, ys}) => {
+    best_parameters = undefined;
+    if (learning_rate) {
+        gui_state["Training"]["Learning rate"] = learning_rate;
+    }
+    if (epochs) {
+        gui_state["Training"]["Number of iterations"] = epochs;
+    }
+    if (typeof validation_split === 'number') {
+        gui_state["Training"]["Validation split"] = validation_split;
+    }
+    if (typeof dropout_rate === 'number') {
+        gui_state["Model"]["Dropout rate"] = dropout_rate;
+    }
+    if (typeof shuffle === 'boolean') {
+        gui_state["Training"]["Shuffle data"] = shuffle;
+    }
+    const create_and_train_model = async (options, {xs, ys}) => {
+        let {layers, optimization_method, loss_function, epochs, learning_rate, stop_if_no_progress_for_n_epochs,
+             dropout_rate, validation_split, activation, shuffle} = options;
         if (create_and_train_model.stopped_prematurely) {
             return;
         }
@@ -690,6 +769,11 @@ const optimize = async (xs, ys, validation_tensors, test_tensors, options) => {
                                  xs_test: test_tensors && test_tensors[0],
                                  ys_test: test_tensors && test_tensors[1],
                                 };
+        const version_number_index = model_name.lastIndexOf('_');
+        if (version_number_index > 0 && training_number > 0) {
+            model_name = model_name.substring(0, version_number_index+1) + (training_number + 1); // 1-indexing
+            model_variants_from_current_search.push(model_name);
+        }
         const make_model = () => {
             return create_model({model_name,
                                  tensor_datasets,
@@ -758,7 +842,7 @@ const optimize = async (xs, ys, validation_tensors, test_tensors, options) => {
                     highest_score = average_score;
                     metrics_of_highest_score =
                         {average_loss, average_accuracy, average_duration, average_size, score_standard_deviation};
-                    if (best_model && !best_model.disposed) {
+                    if (best_model && !best_model.disposed && model_variants_from_current_search.length === 0) {
                         best_model.dispose();
                         best_model.disposed = true;
                     }
@@ -781,6 +865,8 @@ const optimize = async (xs, ys, validation_tensors, test_tensors, options) => {
                          shuffle,
                          class_names,
                          training_number,
+                         dropout_rate,
+                         optimization_method,
                          tfvis_options},
                         (results) => {
                             samples_remaining--;
@@ -1594,6 +1680,9 @@ const contents_of_URL = (URL, success_callback, error_callback) => {
     xhr.send();
 };
 
+let universal_sentence_encoder;
+let universal_sentence_encoder_module;
+
 const receive_message =
     async (event) => {
         if (window.stopped_prematurely) {
@@ -1697,10 +1786,17 @@ const receive_message =
                 if (categories) {
                     return average_categorical_results();
                 }
-                const averages = results[0].map(() => 0);
+                const averages = results[0].map((x) => typeof x === 'number' ? 0 : x.map(() => 0));
                 results.forEach((result) => {
                     result.forEach((prediction, index) => {
-                        averages[index] += prediction/results.length;
+                        if (typeof prediction === 'number') {
+                            averages[index] += prediction/results.length;
+                        } else { // assume it a list of numbers
+                            prediction.forEach((number, value_index) => {
+                                averages[index][value_index] += number/results.length;
+                            });
+                        }
+                        
                     });                        
                 });
                 return averages;     
@@ -1753,11 +1849,73 @@ const receive_message =
                         error_callback,
                         categories);
             });
+        } else if (typeof message.sentence_features !== 'undefined') {
+            const embed = () => {
+                universal_sentence_encoder.embed(message.sentence_features).then(embeddings_tensor => {
+                    const embeddings = embeddings_tensor.arraySync();
+                    embeddings_tensor.dispose();
+                    event.source.postMessage({sentence_features_computed: embeddings,
+                                              time_stamp: message.time_stamp},
+                                             '*'); 
+                 });
+            };
+            const load_script = (url, callback) => {
+                const script = document.createElement("script");
+                script.type = "text/javascript";
+                script.src = url;
+                script.onload = callback;
+                document.head.appendChild(script);
+            };
+            const load_universal_sentence_encoder = (callback) => {
+                if (typeof universal_sentence_encoder_module === 'undefined') {
+                    load_script('../js/universal-sentence-encoder.js',
+                                () => {
+                                    universal_sentence_encoder_module = use;
+                                    invoke_callback(callback);
+                                });
+                } else {
+                    invoke_callback(callback);
+                }
+            };
+            if (universal_sentence_encoder) {
+                embed();
+            } else {
+//                   show_message("Loading the Universal Sentence Encoder ...");
+                load_universal_sentence_encoder(() => {
+                    universal_sentence_encoder_module.load().then(model => {
+                        universal_sentence_encoder = model;
+//                           show_message("Loaded", .1);
+                        embed();
+                    });
+                });
+            };
         } else if (typeof message.does_model_exist !== 'undefined') {
             let name = message.does_model_exist.model_name;
             let model = models[name];
             event.source.postMessage({model_exists: !!model,
-                                      model_name: name}, "*"); 
+                                      model_name: name}, "*");
+        } else if (typeof message.save_model_to_localstorage !== 'undefined') {
+            try {
+                const model_name = message.save_model_to_localstorage;
+                const model = tensorflow.get_model(model_name);
+                if (!model) {
+                    invoke_callback(error_callback, 'Unable to find a model named ' + model_name);
+                    return;
+                }
+                const error_callback = (error) => {
+                    const error_message = error.message;
+                    event.source.postMessage({error_saving_model: model_name,
+                                              error_message: 'Error saving the model ' + model_name + ' ' +
+                                                             error_message}, "*");
+                };
+                model.save('localstorage://' + model_name).then(
+                    () => {
+                        event.source.postMessage({model_saved: model_name}, "*");
+                    },
+                    error_callback);
+            } catch (error) {
+                invoke_callback(error_callback, error);
+            }                                      
         } else if (typeof message.load_model_from_URL !== 'undefined') {
             try {
                 let URL = message.load_model_from_URL;
@@ -1771,19 +1929,15 @@ const receive_message =
                                               error_message: 'Error reading ' + URL + ' to load a neural net. ' +
                                                              error_message}, "*");
                 }
-                tf.loadLayersModel(URL).then((model) => {
-//                                            model.ready_for_prediction = true;
-                                           // until https://github.com/tensorflow/tfjs/issues/885 is resolved need to update the name
-                                           let name = URL.substring(URL.lastIndexOf('/')+1, URL.lastIndexOf('.'));
-                                           model.name = name;
-                                           tensorflow.add_to_models(model);
-                                           enable_evaluate_button();
-                                           event.source.postMessage({model_loaded: URL,
-                                                                     model_name: name}, "*");
-//                                            model.compile({loss: 'meanSquaredError', optimizer: 'adamax'});
-                                           show_layers(model, 'Model after loading');
-                                       },
-                                       error_callback);
+                tf.loadLayersModel(URL).then(
+                    (model) => {
+                        tensorflow.add_to_models(model);
+                        enable_evaluate_button();
+                        event.source.postMessage({model_loaded: URL,
+                                                  model_name: model.name}, "*");
+                        show_layers(model, 'Model after loading');
+                    },
+                    error_callback);
             } catch (error) {
                 invoke_callback(error_callback, error);
             }
@@ -1825,28 +1979,30 @@ const receive_message =
                     error_callback(new Error("No results from search."));
                     return;
                 }
-                const best_parameters = result.argmin;
-                best_parameters.input_shape = shape_of_data((get_data(model_name, 'training') || get_data(model_name, 'validation')).input[0]);
-                best_parameters.optimization_method = inverse_lookup(best_parameters.optimization_method, optimization_methods);
-                best_parameters.loss_function       = inverse_lookup(best_parameters.loss_function, loss_functions(categories));
+                const parameters = result.argmin;
+                parameters.input_shape = shape_of_data((get_data(model_name, 'training') || get_data(model_name, 'validation')).input[0]);
+                parameters.optimization_method = inverse_lookup(parameters.optimization_method, optimization_methods);
+                parameters.loss_function       = inverse_lookup(parameters.loss_function, loss_functions(categories));
                 // So validation data is used when creating and training the model with the best parameters.
-                best_parameters.used_validation_data = !!get_data(model_name, 'validation');
+                parameters.used_validation_data = !!get_data(model_name, 'validation');
                 if (lowest_loss > 0) {
-                    best_parameters.lowest_loss = lowest_loss;
+                    parameters.lowest_loss = lowest_loss;
                 }
                 if (highest_accuracy > 0) {
-                    best_parameters.highest_accuracy = highest_accuracy;
+                    parameters.highest_accuracy = highest_accuracy;
                 }
-                if (typeof highest_score ==='number') {
-                    best_parameters.highest_score = highest_score;
-                    best_parameters.metrics = metrics_of_highest_score;
+                if (typeof highest_score === 'number') {
+                    parameters.highest_score = highest_score;
+                    parameters.metrics = metrics_of_highest_score;
                 }
                 const model = result.best_model;
-                add_to_models(model);
-                model.best_model = model;
-                model.best_parameters = best_parameters;
+                if (model) {
+                    add_to_models(model);
+                    best_model = model;
+                    best_parameters = parameters;
+                }
                 event.source.postMessage({optimize_hyperparameters_time_stamp: time_stamp,
-                                          final_optimize_hyperparameters: best_parameters},
+                                          final_optimize_hyperparameters: parameters},
                                          "*");
             };
             const experiment_end_callback = (n, trial) => {
@@ -1914,7 +2070,7 @@ const replace_with_best_model = (name_of_model_used_in_search, success_callback,
     let error_message;
     if (!model) {
         error_message = "No model named '" + name_of_model_used_in_search + "' found.";
-    } else if (!model.best_model) {
+    } else if (!best_model) {
         error_message = "No model found by searching for better parameters for model '" + 
                         name_of_model_used_in_search +
                         "' to replace it."; 
@@ -1926,11 +2082,11 @@ const replace_with_best_model = (name_of_model_used_in_search, success_callback,
         }
         throw new Error(error_message);        
     }
-    add_to_models(model.best_model);
-    install_settings(model.best_parameters);
-    show_layers(model.best_model, 'Model found by parameter search');
+    add_to_models(best_model);
+    install_settings(best_parameters);
+    show_layers(best_model, 'Model found by parameter search');
     if (success_callback) {
-        invoke_callback(success_callback, model.best_parameters);
+        invoke_callback(success_callback, best_parameters);
     }
 };
 

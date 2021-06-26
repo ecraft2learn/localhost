@@ -65,7 +65,7 @@ window.ecraft2learn =
       };
       let get_key = function (key_name) {
           // API keys are provided by Snap! reporters
-          var key = run_snap_block(key_name);
+          var key = get_global_variable_value(key_name);
           var get_hash_parameter = function (name, parameters, default_value) {
               var parts = decodeURI(parameters).split('&');
               var value = default_value;
@@ -100,23 +100,23 @@ window.ecraft2learn =
           }
           // key missing to explain how to obtain keys
           inform("Missing API key",
-                 "No value reported by the '" + key_name +
-                 "' reporter. After obtaining the key edit the reporter in the 'Variables' area.\n" +
+                 "You need to set the variable '" + key_name +
+                 "' to your key." +
                  "Do you want to visit https://github.com/ecraft2learn/ai/wiki to learn how to get a key?",
                  function () {
                        window.onbeforeunload = null; // don't warn about reload
-                       document.location.assign("https://github.com/ecraft2learn/ai/wiki");                                 
+                       window.open("https://github.com/ecraft2learn/ai/wiki", "_blank");                                 
                  });
       };
       let run_snap_block = function (labelSpec) { // add parameters later
           // runs a Snap! block that matches labelSpec
           // labelSpec if it takes areguments will look something like 'label %txt of size %n'
-          var ide = get_snap_ide(ecraft2learn.snap_context);
+          var ide = get_snap_ide();
           // based upon https://github.com/jmoenig/Snap--Build-Your-Own-Blocks/issues/1791#issuecomment-313529328
           var allBlocks = ide.sprites.asArray().concat([ide.stage])
                          .map(function (item) {return item.customBlocks})
                          .reduce(function (a, b) {return a.concat(b)})
-                         .concat(ide.stage.globalBlocks);
+                         .concat(ide.stage.windoglobalBlocks);
           var blockSpecs = allBlocks.map(function (block) {return block.blockSpec()});
           var index = blockSpecs.indexOf(labelSpec);
           if (index < 0) {
@@ -125,20 +125,22 @@ window.ecraft2learn =
           var blockTemplate = allBlocks[index].templateInstance();
           return invoke_block_morph(blockTemplate);
       };
-      const get_snap_ide = (start) => {
-          // finds the Snap! IDE_Morph that is the element 'start' or one of its ancestors
+      const get_snap_ide = () => {
+          // finds the Snap! IDE_Morph 
           if (!inside_snap()) {
               return;
           }
-          let ide = start;
-          while (ide && !(ide instanceof IDE_Morph)) {
-              ide = ide.parent;
+          if (typeof ecraft2learn !== 'undefined' && typeof ecraft2learn.snap_context !== 'undefined') {
+              const stage = ecraft2learn.snap_context.parentThatIsA(StageMorph);
+              if (stage) {
+                  let ide = stage.parentThatIsA(IDE_Morph);
+                  if (ide) {
+                      return ide;
+                  }
+              }
           }
-          if (!ide) {
-              // not as general but works well (for now)
-              return world.children[0];
-          }
-          return ide;
+          // not as general but works well (for now)
+          return world.children[0];
       };
       const enhance_snap_openProject = function () {
           if (!inside_snap()) {
@@ -257,11 +259,11 @@ window.ecraft2learn =
           // too soon so wait until page is loaded
           window.addEventListener('load', enhance_snap, false);
       }
-      let get_global_variable_value = function (name, default_value) {
+    const get_global_variable_value = function (name, default_value) {
           // returns the value of the Snap! global variable named 'name'
           // if none exists returns default_value
-          var ide = get_snap_ide(ecraft2learn.snap_context);
-          var value;
+          const ide = get_snap_ide();
+          let value;
           try {
               value = ide.globalVariables.getVar(name);
           } catch (e) {
@@ -270,10 +272,7 @@ window.ecraft2learn =
           if (value === undefined) {
               return default_value;
           }
-          if (typeof value ===  'string') {
-              return value;
-          }
-          return value.asArray();
+          return javascript_to_snap(value);
     };
     const record_callbacks = function () {
         Array.from(arguments).forEach(function (callback) {
@@ -290,7 +289,11 @@ window.ecraft2learn =
                 return;
             }
             if (!(callback.expression instanceof CommandBlockMorph ||
-                  callback.expression instanceof ReporterBlockMorph)) {
+                  callback.expression instanceof ReporterBlockMorph ||
+                  (callback.expression instanceof Array &&
+                   callback.expression.length > 0 &&
+                   (callback.expression[0] instanceof CommandBlockMorph ||
+                    callback.expression[0] instanceof ReporterBlockMorph)))) {
                 return;
             }
             // callback.emptySlots+1 is in case callback is passed more arguments than callback has empty slots
@@ -308,7 +311,8 @@ window.ecraft2learn =
             const stage = world.children[0].stage; // this.parentThatIsA(StageMorph);
             const process = new Process(null, callback.receiver, null, true);
             process.initializeFor(callback, new List(parameters));
-            if (!process.topBlock.world()) {
+            if (typeof process.topBlock.world === 'function' &&
+                !process.topBlock.world()) {
                 // this is needed for error reporting - without it errors aren't repeated
                 // however they are displayed at the top of the "world"
                 process.topBlock.world = () => world;
@@ -662,6 +666,8 @@ window.ecraft2learn =
             }
         } else if (ecraft2learn.default_language) {
             utterance.lang = ecraft2learn.default_language;
+        } else {
+            utterance.lang = navigator.language;
         }
         pitch = +pitch; // if string try convering to a number
         if (typeof pitch === 'number' && pitch > 0) {
@@ -678,10 +684,10 @@ window.ecraft2learn =
             }
             utterance.rate = rate;
         }
-        if (!voice_number && ecraft2learn.default_language) {
+        if (!voice_number) {
             let voices = window.speechSynthesis.getVoices();
             voices.some(function (voice, index) {
-                if (voice.lang === ecraft2learn.default_language) {
+                if (voice.lang === (ecraft2learn.default_language || navigator.language)) {
                     voice_number = index+1; // 1-indexing
                     return true;
                 }
@@ -1517,9 +1523,35 @@ window.ecraft2learn =
 //                 callback(ecraft2learn.posenet_webcam);
 //             }
 //         };
+    const save_tensorflow_model_to_localstorage = ((model_name, success_callback, error_callback) => {
+        record_callbacks(success_callback, error_callback);
+        request_of_support_window('tensorflow.js',
+                                  'Loaded',
+                                  () => {
+                                      return {save_model_to_localstorage: model_name};
+                                  },
+                                  (message) => {
+                                      return message.model_saved === model_name ||
+                                             message.error_saving_model === model_name;
+                                  },
+                                  (message) => {
+                                      if (message.model_saved === model_name) {
+                                          invoke_callback(success_callback, javascript_to_snap(model_name));
+                                      } else if (error_callback) {
+                                          show_message("Model not saved due to error", 3);
+                                          console.log(message.error_message);
+                                          invoke_callback(error_callback, javascript_to_snap(message.error_message));
+                                      } else {
+                                          show_message("Model not saved due to error", 3);
+                                          inform("Error in saving a model to local storage", message.error_message);
+                                      }
+                                  });        
+    });
     const load_tensorflow_model_from_URL = (URL, success_callback, error_callback) => {
         record_callbacks(success_callback, error_callback);
-        URL = relative_to_absolute_url(URL);
+        if (URL.indexOf('localstorage:') !== 0) {
+            URL = encodeURI(relative_to_absolute_url(URL));
+        }
         show_message("Loading model...");
         request_of_support_window('tensorflow.js',
                                   'Loaded',
@@ -1543,6 +1575,36 @@ window.ecraft2learn =
                                           inform("Error in loading a model from a URL", message.error_message);
                                       }
                                   });
+    };
+    const save_project_to_localstorage = (name, success_callback, error_callback) => {
+        record_callbacks(success_callback, error_callback);
+        try {
+            const ide = get_snap_ide();
+            const xml = ide.serializer.serialize(ide.stage);
+            localStorage.setItem('-snap-project-' + name, xml);
+            invoke_callback(success_callback, name);
+        } catch (error) {
+            invoke_callback(error_callback, error.message);
+        }
+    };
+    const load_project_from_localstorage = (name) => {
+        const ide = get_snap_ide();
+        const xml = localStorage.getItem('-snap-project-' + name);
+        ide.openProjectString(xml,
+                              () => {
+                                  // ide may have changed when loading project?
+//                                   const ide = get_snap_ide();
+//                                   
+//                                   world.children[0]
+                                  setTimeout(() => {
+                                                 ide.runScripts();
+                                             },
+                                             1000);
+//                                   ide.toggleAppMode();
+                              });
+    };
+    const is_project_saved_in_localstorage = (name) => {
+        return !!localStorage.getItem('-snap-project-' + name);
     };
     const load_data_from_URL = (kind, URL, add_to_previous_data, model_name, success_callback, error_callback) => {
         record_callbacks(success_callback, error_callback);
@@ -1845,7 +1907,7 @@ window.ecraft2learn =
     var history_of_informs = [];
     const show_message = (message, seconds) => {
         if (inside_snap()) {
-            const ide = get_snap_ide(ecraft2learn.snap_context);
+            const ide = get_snap_ide();
             ide.showMessage(message, seconds || 5); // by defaults messages won't remain up more than 5 seconds
         } else {
             alert(message);
@@ -1873,7 +1935,7 @@ window.ecraft2learn =
             return;
         }
         record_callbacks(callback);
-        const ide = get_snap_ide(ecraft2learn.snap_context);
+        const ide = get_snap_ide();
         if (!message) {
             message = "No message available.";
         }
@@ -2287,7 +2349,7 @@ xhr.send();
           // calls callback with the contents of the 'url' unless an error occurs and then error_callback is called
           // ironically this is the rare function that may be useful when there is no Internet connection
           // since it can be used to communicate with localhost (e.g. to read/write Raspberry Pi or Arduino pins)
-          url = relative_to_absolute_url(url);
+          url = encodeURI(relative_to_absolute_url(url));
           var xhr = new XMLHttpRequest();
           record_callbacks(callback, error_callback);
           xhr.open('GET', url);
@@ -2348,18 +2410,16 @@ xhr.send();
           // grammar -- see https://www.w3.org/TR/jsgf/ for JSGF format
           // if the browser has no support for speech recognition then the Microsoft Speech API is used (API key required)
           if (typeof SpeechRecognition === 'undefined' && typeof webkitSpeechRecognition === 'undefined') {
-              if (!inside_snap()) {
-                  alert("This browser does not support speech recognition. Chrome is known to work.");
+              if (typeof SpeechRecognition === 'undefined' && typeof webkitSpeechRecognition === 'undefined') {
+                  if (!inside_snap()) {
+                      alert("This browser does not support speech recognition. Chrome and Edge are known to work.");
+                      return false;
+                  }
+                  // no support from this browser so try using the Microsoft Speech API
+                  inform("This browser does not support speech recognition",
+                         "You could use Chrome or Edge.");                  
                   return false;
               }
-              // no support from this browser so try using the Microsoft Speech API
-              inform("This browser does not support speech recognition",
-                     "You could use Chrome or you can use Microsoft's speech recognition service.\n" +
-                     "Go ahead and use the Microsoft service? (It requires an API key.)",
-                     function () {
-                          ecraft2learn.start_microsoft_speech_recognition(interim_spoken_callback, final_spoken_callback, error_callback);
-                     });                  
-              return false;
           }
           const restart_speech_recognition = () => {
               ecraft2learn.start_speech_recognition(final_spoken_callback, error_callback, interim_spoken_callback, language, 
@@ -2461,6 +2521,8 @@ xhr.send();
                   return "Unable to access the microphone. Perhaps another program is using it or permission has not been granted.";
               } else if (message === 'no-speech') {
                   return "No speech heard for a while.";
+              } else if (message === 'not-allowed') {
+                  return "Permission to use the microphone not granted.";
               }
               return message;
           };
@@ -3115,6 +3177,12 @@ xhr.send();
   save_project: function (name) {
       get_snap_ide().saveProject(name);
   },
+  save_global_variable_as_csv: (name) => {
+      const value = get_global_variable_value(name);
+      get_snap_ide().saveFileAs(value.asCSV(),
+                                'text/csv;charset=utf-8', // RFC 4180
+                                name);
+  },
   console_log: function (message) {
       message = snap_to_javascript(message);
       console.log(message);
@@ -3486,7 +3554,11 @@ xhr.send();
   is_model_ready_for_prediction, // kept for backwards compatibility
   does_model_exist,
   predictions_from_model,
+  save_project_to_localstorage,
+  load_project_from_localstorage,
   load_tensorflow_model_from_URL,
+  is_project_saved_in_localstorage,
+  save_tensorflow_model_to_localstorage,
   get_prediction_from_teachable_machine_image_or_pose_model,
   get_prediction_from_teachable_machine_audio_model,
   load_data_from_URL,
@@ -3500,6 +3572,11 @@ xhr.send();
   stop_all_scripts,
   snap_to_javascript,
   javascript_to_snap,
+  global_variable_names: () => javascript_to_snap(get_snap_ide().globalVariables.names()),
+  get_global_variable_value: (name) => get_global_variable_value(name),
+  set_global_variable: (name, value, sender) => get_snap_ide().globalVariables.setVar(name, value, sender),
+//   delete_global_variable: (name) => get_snap_ide().globalVariables.deleteVar(name),
+  delete_global_variable: (name) => ecraft2learn.snap_context.deleteVariable(name),
   relative_to_absolute_url,
   load_script,
   load_camera_training_from_file: (callback) => {
@@ -3727,8 +3804,8 @@ xhr.send();
           invoke_callback(callback);
       }
   },
-  sentence_features: (sentences, callback) => {
-      record_callbacks(callback);
+  sentence_features: (sentences, success_callback, error_callback) => {
+      record_callbacks(success_callback, error_callback);
       if (!(sentences instanceof List)) {
           throw new Error("Sentence features expected a list of sentences. Not " + sentences.constructor.name);;
       }
@@ -3743,7 +3820,7 @@ xhr.send();
           ecraft2learn.universal_sentence_encoder.embed(sentences_as_javascript).then(embeddings_tensor => {
               const embeddings = embeddings_tensor.arraySync();
               embeddings_tensor.dispose();
-              invoke_callback(callback, javascript_to_snap(embeddings));   
+              invoke_callback(success_callback, javascript_to_snap(embeddings));   
           });
       };
       if (ecraft2learn.universal_sentence_encoder) {
@@ -3758,6 +3835,29 @@ xhr.send();
               });
           });
       };
+      // following works but not clear it is better in any way
+//       const time_stamp = Date.now();
+//       request_of_support_window('tensorflow.js',
+//                                 'Loaded',
+//                                 () => {
+//                                     return {sentence_features: sentences_as_javascript,
+//                                             time_stamp};
+//                                 },
+//                                 (message) => {
+//                                     return typeof message.sentence_features_computed !== 'undefined' ||
+//                                            typeof message.error_message !== 'undefined';
+//                                 },
+//                                 (message) => {
+//                                     if (message.time_stamp === time_stamp) {
+//                                         invoke_callback(success_callback,
+//                                                         javascript_to_snap(message.sentence_features_computed));
+//                                     } else if (error_callback) {
+//                                         console.log(message.error_message);
+//                                         invoke_callback(error_callback, javascript_to_snap(message.error_message));
+//                                     } else {
+//                                         inform("Error computing features of sentences", message.error_message);
+//                                     }
+//                                 });
   },
   tokenize_sentence: (sentence, callback) => {
       const tokenize = () => {
@@ -3792,7 +3892,7 @@ xhr.send();
           show_message("Loading the Question Answering Model ...");
           ecraft2learn.load_BERT(() => {
               qna.load().then(model => {
-                  ecraft2learn.universal_sentence_encoder = model;
+                  ecraft2learn.BERT = model;
                   show_message("loaded", .1);
                   answer();
               });

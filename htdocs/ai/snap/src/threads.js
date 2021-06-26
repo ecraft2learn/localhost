@@ -61,7 +61,7 @@ StageMorph, SpriteMorph, StagePrompterMorph, Note, modules, isString, copy, Map,
 isNil, WatcherMorph, List, ListWatcherMorph, alert, console, TableMorph, BLACK,
 TableFrameMorph, ColorSlotMorph, isSnapObject, newCanvas, Symbol, SVG_Costume*/
 
-modules.threads = '2021-February-23';
+modules.threads = '2021-April-17';
 
 var ThreadManager;
 var Process;
@@ -2535,7 +2535,8 @@ Process.prototype.doRepeat = function (counter, body) {
         outer = this.context.outerContext, // for tail call elimination
         isCustomBlock = this.context.isCustomBlock;
 
-    if (counter < 1) { // was '=== 0', which caused infinite loops on non-ints
+    if (isNaN(counter) || counter < 1) { 
+	// was '=== 0', which caused infinite loops on non-ints
         return null;
     }
     this.popContext();
@@ -2610,7 +2611,7 @@ Process.prototype.doForEach = function (upvar, list, script) {
     this.pushContext();
     this.context.outerContext.variables.addVar(upvar);
     this.context.outerContext.variables.setVar(upvar, next);
-    this.evaluate(script, new List([next]), true);
+    this.evaluate(script, new List(/*[next]*/), true);
 };
 
 Process.prototype.doFor = function (upvar, start, end, script) {
@@ -2893,12 +2894,23 @@ Process.prototype.reportCombine = function (list, reporter) {
 
     var next, current, index, parms;
     this.assertType(list, 'list');
-    if (list.length() < 2) {
-        this.returnValueToParentContext(list.length() ? list.at(1) : 0);
-        return;
-    }
     if (list.isLinked) {
         if (this.context.accumulator === null) {
+            // check for special cases to speed up
+            if (this.canRunOptimizedForCombine(reporter)) {
+                return this.reportListAggregation(
+                    list,
+                    reporter.expression.selector
+                );
+            }
+
+            // test for base cases
+            if (list.length() < 2) {
+                this.returnValueToParentContext(list.length() ? list.at(1) : 0);
+                return;
+            }
+
+            // initialize the accumulator
             this.context.accumulator = {
                 source : list.cdr(),
                 idx : 1,
@@ -2919,6 +2931,21 @@ Process.prototype.reportCombine = function (list, reporter) {
         next = this.context.accumulator.source.at(1);
     } else { // arrayed
         if (this.context.accumulator === null) {
+            // check for special cases to speed up
+            if (this.canRunOptimizedForCombine(reporter)) {
+                return this.reportListAggregation(
+                    list,
+                    reporter.expression.selector
+                );
+            }
+
+            // test for base cases
+            if (list.length() < 2) {
+                this.returnValueToParentContext(list.length() ? list.at(1) : 0);
+                return;
+            }
+
+            // initialize the accumulator
             this.context.accumulator = {
                 idx : 1,
                 target : list.at(1)
@@ -2944,6 +2971,62 @@ Process.prototype.reportCombine = function (list, reporter) {
         parms.push(list);
     }
     this.evaluate(reporter, new List(parms));
+};
+
+Process.prototype.reportListAggregation = function (list, selector) {
+    // private - used by reportCombine to optimize certain commutative
+    // operations such as sum, product, min, max hyperized all at once
+    var len = list.length(),
+        result, i;
+    if (len === 0) {
+        switch (selector) {
+        case 'reportProduct':
+            return 1;
+        case 'reportMin':
+            return Infinity;
+        case 'reportMax':
+            return -Infinity;
+        default: // reportSum
+            return 0;
+        }
+    }
+    result = list.at(1);
+    if (len > 1) {
+        for (i = 2; i <= len; i += 1) {
+            result = this[selector](result, list.at(i));
+        }
+    }
+    return result;
+};
+
+Process.prototype.canRunOptimizedForCombine = function (aContext) {
+    // private - used by reportCombine to check for optimizable
+    // special cases
+    var op = aContext.expression.selector,
+        eligible;
+    if (!op) {
+        return false;
+    }
+    eligible = ['reportSum', 'reportProduct', 'reportMin', 'reportMax'];
+    if (!contains(eligible, op)) {
+        return false;
+    }
+
+    // scan the expression's inputs, we can assume there are exactly two,
+    // because we're only looking at eligible selectors. Make sure none is
+    // a non-empty input slot or a variable getter whose name doesn't
+    // correspond to an input of the context.
+    // make sure the context has either no or exactly two inputs.
+    if (aContext.inputs.length === 0) {
+        return aContext.expression.inputs().every(each => each.bindingID);
+    }
+    if (aContext.inputs.length !== 2) {
+        return false;
+    }
+    return aContext.expression.inputs().every(each =>
+        each.selector === 'reportGetVar' &&
+            contains(aContext.inputs, each.blockSpec)
+    );
 };
 
 // Process interpolated primitives
@@ -4943,10 +5026,12 @@ Process.prototype.reportRayLengthTo = function (name) {
         dir,
         a, b, x, y,
         top, bottom, left, right,
-        hSect, vSect,
+        circa, hSect, vSect,
         point, hit,
         temp,
         width, imageData;
+
+    circa = (num) => Math.round(num * 10000000) / 10000000; // good enough
 
     hSect = (yLevel) => {
         var theta = radians(dir);
@@ -4954,12 +5039,13 @@ Process.prototype.reportRayLengthTo = function (name) {
         a = b * Math.tan(theta);
         x = rc.x + a;
         if (
-            (x === rc.x &&
+            (circa(x) === circa(rc.x) &&
                 ((dir === 180 && rc.y < yLevel) ||
                 dir === 0 && rc.y > yLevel)
             ) ||
             (x > rc.x && dir >= 0 && dir < 180) ||
-            (x < rc.x && dir >= 180 && dir < 360)
+            (circa(x) < circa(rc.x) &&
+                dir >= 180 && dir < 360)
         ) {
             if (x >= left && x <= right) {
                 intersections.push(new Point(x, yLevel));
@@ -4973,7 +5059,7 @@ Process.prototype.reportRayLengthTo = function (name) {
         a = b * Math.tan(theta);
         y = rc.y + a;
         if (
-            (y === rc.y &&
+            (circa(y) === circa(rc.y) &&
                 ((dir === 90 && rc.x < xLevel) ||
                 dir === 270 && rc.x > xLevel)
             ) ||
@@ -5542,12 +5628,18 @@ Process.prototype.reportMouseDown = function () {
 };
 
 Process.prototype.reportKeyPressed = function (keyString) {
+    // hyper-monadic
     var stage;
     if (this.homeContext.receiver) {
         stage = this.homeContext.receiver.parentThatIsA(StageMorph);
         if (stage) {
             if (this.inputOption(keyString) === 'any key') {
                 return Object.keys(stage.keysPressed).length > 0;
+            }
+            if (keyString instanceof List && this.enableHyperOps) {
+                return keyString.map(
+                    each => stage.keysPressed[each] !== undefined
+                );
             }
             return stage.keysPressed[keyString] !== undefined;
         }
@@ -6365,14 +6457,21 @@ Process.prototype.reportAtomicCombine = function (list, reporter) {
     // #3 - optional | index
     // #4 - optional | source list
 
+    var result, src, len, formalParameterCount, parms, func, i;
     this.assertType(list, 'list');
-    var result = '',
-        src = list.itemsArray(),
-        len = src.length,
-        formalParameterCount = reporter.inputs.length,
-        parms,
-        func,
-        i;
+
+    // check for special cases to speed up
+    if (this.canRunOptimizedForCombine(reporter)) {
+        return this.reportListAggregation(
+            list,
+            reporter.expression.selector
+        );
+    }
+
+    result = '';
+    src = list.itemsArray();
+    len = src.length;
+    formalParameterCount = reporter.inputs.length;
 
 	if (len === 0) {
  		return result;
